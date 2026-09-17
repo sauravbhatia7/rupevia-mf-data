@@ -12,7 +12,9 @@ portfolios are excluded before any ranking work begins.
 """
 from __future__ import annotations
 
+import base64
 import datetime as dt
+import gzip
 import json
 import re
 
@@ -45,9 +47,6 @@ def parse_latest(text: str) -> list[dict]:
     if not isinstance(payload, list):
         raise RuntimeError("MFAPI /mf/latest did not return a list")
 
-    # /mf/latest may include stale rows belonging to discontinued/merged schemes.
-    # Anchor freshness to the newest NAV date present in the feed rather than the
-    # GitHub runner's wall clock so holidays/weekends cannot invalidate the feed.
     all_dates = [_date(x.get("date")) for x in payload if isinstance(x, dict)]
     all_dates = [d for d in all_dates if d is not None]
     if not all_dates:
@@ -62,12 +61,10 @@ def parse_latest(text: str) -> list[dict]:
         scheme_type = str(x.get("schemeType") or x.get("scheme_type") or "")
         if "open ended" not in scheme_type.lower():
             continue
-
         scheme_category = str(x.get("schemeCategory") or x.get("scheme_category") or "")
         cat = core.category(scheme_category)
         if not cat:
             continue
-
         name = str(x.get("schemeName") or x.get("scheme_name") or "").strip()
         if not name or _legacy_name(name):
             continue
@@ -75,18 +72,14 @@ def parse_latest(text: str) -> list[dict]:
             continue
         if cat == "Index" and not core.equity_index(name):
             continue
-
         try:
             code = str(x.get("schemeCode") or x.get("scheme_code") or "").strip()
             nav = float(x.get("nav") or 0)
             nav_date = _date(x.get("date"))
         except Exception:
             continue
-        if not code or nav <= 0 or nav_date is None:
+        if not code or nav <= 0 or nav_date is None or nav_date < min_active_date:
             continue
-        if nav_date < min_active_date:
-            continue
-
         out.append({
             "schemeCode": code,
             "isin": str(x.get("isinGrowth") or x.get("isin_growth") or ""),
@@ -110,9 +103,6 @@ def main() -> int:
     core.AMFI_URL = core.MFAPI_BASE.rstrip("/") + "/mf/latest"
     core.parse_amfi = parse_latest
 
-    # Rank arrows are meaningful only when the previous snapshot was produced by
-    # the same clean-ranking policy. Algorithm/data-quality migrations therefore
-    # establish a fresh baseline once instead of showing synthetic movement.
     original_old_ranks = core.old_ranks
 
     def guarded_old_ranks(old: dict):
@@ -137,10 +127,14 @@ def main() -> int:
             "excludesSegregatedPortfolios": True,
             "rankingBaselineVersion": RANK_BASELINE_VERSION,
         }
-        core.OUT.write_text(
-            json.dumps(snap, ensure_ascii=False, separators=(",", ":")) + "\n",
-            encoding="utf-8",
+        raw = (json.dumps(snap, ensure_ascii=False, separators=(",", ":")) + "\n").encode("utf-8")
+        core.OUT.write_bytes(raw)
+        bundle_path = core.OUT.parent / "mf-snapshot.json.gz.b64"
+        bundle_path.write_text(
+            base64.b64encode(gzip.compress(raw, compresslevel=9, mtime=0)).decode("ascii") + "\n",
+            encoding="ascii",
         )
+        print(f"Bundle export: {bundle_path} ({bundle_path.stat().st_size} bytes)")
     return rc
 
 
