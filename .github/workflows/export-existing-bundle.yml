@@ -21,3 +21,4 @@ jobs:
           path: data/mf-snapshot.json
           if-no-files-found: error
           retention-days: 1
+# export-refresh: schema-v3
