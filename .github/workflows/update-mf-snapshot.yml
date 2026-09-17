@@ -36,7 +36,7 @@ jobs:
           TOP_N: '30'
           MAX_WORKERS: '8'
           HTTP_TIMEOUT: '45'
-        run: python scripts/update_snapshot.py
+        run: python scripts/update_snapshot_mfapi.py
 
       - name: Validate snapshot
         run: |
