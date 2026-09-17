@@ -7,27 +7,17 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   export:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Export deterministic compressed bundle
-        run: |
-          python - <<'PY'
-          import base64, gzip
-          raw=open('data/mf-snapshot.json','rb').read()
-          packed=base64.b64encode(gzip.compress(raw,compresslevel=9,mtime=0)).decode('ascii')+'\n'
-          open('data/mf-snapshot.json.gz.b64','w',encoding='ascii').write(packed)
-          print('raw',len(raw),'packed',len(packed))
-          PY
-      - name: Commit bundle
-        run: |
-          git config user.name "rupevia-data-bot"
-          git config user.email "actions@users.noreply.github.com"
-          git add data/mf-snapshot.json.gz.b64
-          if git diff --cached --quiet; then exit 0; fi
-          git commit -m "data: add compressed snapshot bundle"
-          git push
+      - name: Upload current snapshot artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: rupevia-mf-snapshot
+          path: data/mf-snapshot.json
+          if-no-files-found: error
+          retention-days: 1
