@@ -1,0 +1,35 @@
+name: Probe MFData schema
+on:
+  push:
+    paths:
+      - '.github/workflows/probe-mfdata.yml'
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Probe scheme and holdings schema
+        run: |
+          python - <<'PY'
+          import json, urllib.request
+          def get(u):
+              r=urllib.request.Request(u,headers={'User-Agent':'Rupevia-MF-Probe/1.0','Accept':'application/json'})
+              with urllib.request.urlopen(r,timeout=30) as x: return json.loads(x.read().decode())
+          s=get('https://mfdata.in/api/v1/schemes/147946')
+          print('SCHEME_JSON_START')
+          print(json.dumps(s,ensure_ascii=False)[:12000])
+          print('SCHEME_JSON_END')
+          data=s.get('data') or {}
+          fam=data.get('family_id') or data.get('familyId')
+          print('FAMILY_ID',fam)
+          if fam:
+              h=get(f'https://mfdata.in/api/v1/families/{fam}/holdings')
+              print('HOLDINGS_JSON_START')
+              print(json.dumps(h,ensure_ascii=False)[:16000])
+              print('HOLDINGS_JSON_END')
+              sec=get(f'https://mfdata.in/api/v1/families/{fam}/sectors')
+              print('SECTORS_JSON_START')
+              print(json.dumps(sec,ensure_ascii=False)[:12000])
+              print('SECTORS_JSON_END')
+          PY
