@@ -19,6 +19,7 @@ import re
 import update_snapshot as core
 
 FRESHNESS_DAYS = 7
+RANK_BASELINE_VERSION = 1
 LEGACY_NAME_PATTERNS = (
     "segregated portfolio",
     "segregated port",
@@ -108,6 +109,20 @@ def parse_latest(text: str) -> list[dict]:
 def main() -> int:
     core.AMFI_URL = core.MFAPI_BASE.rstrip("/") + "/mf/latest"
     core.parse_amfi = parse_latest
+
+    # Rank arrows are meaningful only when the previous snapshot was produced by
+    # the same clean-ranking policy. Algorithm/data-quality migrations therefore
+    # establish a fresh baseline once instead of showing synthetic movement.
+    original_old_ranks = core.old_ranks
+
+    def guarded_old_ranks(old: dict):
+        quality = old.get("quality") or {}
+        if quality.get("rankingBaselineVersion") != RANK_BASELINE_VERSION:
+            return {}
+        return original_old_ranks(old)
+
+    core.old_ranks = guarded_old_ranks
+
     rc = core.main()
     if rc == 0 and core.OUT.exists():
         snap = json.loads(core.OUT.read_text(encoding="utf-8"))
@@ -120,6 +135,7 @@ def main() -> int:
             "activeNavFreshnessDays": FRESHNESS_DAYS,
             "excludesStaleSchemes": True,
             "excludesSegregatedPortfolios": True,
+            "rankingBaselineVersion": RANK_BASELINE_VERSION,
         }
         core.OUT.write_text(
             json.dumps(snap, ensure_ascii=False, separators=(",", ":")) + "\n",
