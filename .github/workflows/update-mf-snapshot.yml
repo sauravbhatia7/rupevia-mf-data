@@ -41,20 +41,23 @@ jobs:
       - name: Validate snapshot
         run: |
           python - <<'PY'
-          import json
+          import base64, gzip, json
           p='data/mf-snapshot.json'
-          x=json.load(open(p,encoding='utf-8'))
+          raw=open(p,'rb').read()
+          x=json.loads(raw)
           assert x['schemaVersion']==2
           assert x['stats']['publishedFunds']==240
           assert all(v['count']==30 for v in x['categories'].values())
-          print('snapshot OK:', x['sourceAsOf'], x['stats'])
+          packed=open('data/mf-snapshot.json.gz.b64','rt',encoding='ascii').read().strip()
+          assert gzip.decompress(base64.b64decode(packed)) == raw
+          print('snapshot OK:', x['sourceAsOf'], x['stats'], 'bundle bytes:', len(packed))
           PY
 
       - name: Commit changed snapshot
         run: |
           git config user.name "rupevia-data-bot"
           git config user.email "actions@users.noreply.github.com"
-          git add data/mf-snapshot.json
+          git add data/mf-snapshot.json data/mf-snapshot.json.gz.b64
           if git diff --cached --quiet; then
             echo "No snapshot change"
             exit 0
