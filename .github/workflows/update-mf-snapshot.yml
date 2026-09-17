@@ -1,0 +1,63 @@
+name: Update MF snapshot
+
+on:
+  schedule:
+    - cron: '30 15 * * *' # 21:00 IST daily
+  workflow_dispatch:
+  push:
+    paths:
+      - 'scripts/**'
+      - '.github/workflows/update-mf-snapshot.yml'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: rupevia-mf-snapshot
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Build snapshot
+        env:
+          TOP_N: '30'
+          MAX_WORKERS: '8'
+          HTTP_TIMEOUT: '45'
+        run: python scripts/update_snapshot.py
+
+      - name: Validate snapshot
+        run: |
+          python - <<'PY'
+          import json
+          p='data/mf-snapshot.json'
+          x=json.load(open(p,encoding='utf-8'))
+          assert x['schemaVersion']==2
+          assert x['stats']['publishedFunds']==240
+          assert all(v['count']==30 for v in x['categories'].values())
+          print('snapshot OK:', x['sourceAsOf'], x['stats'])
+          PY
+
+      - name: Commit changed snapshot
+        run: |
+          if git diff --quiet -- data/mf-snapshot.json; then
+            echo "No snapshot change"
+            exit 0
+          fi
+          git config user.name "rupevia-data-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add data/mf-snapshot.json
+          git commit -m "data: refresh mutual fund snapshot"
+          git push
