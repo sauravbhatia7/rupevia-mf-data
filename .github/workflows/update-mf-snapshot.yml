@@ -31,26 +31,49 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Build snapshot
+      - name: Build ranked snapshot
         env:
           TOP_N: '30'
           MAX_WORKERS: '8'
           HTTP_TIMEOUT: '45'
         run: python scripts/update_snapshot_mfapi.py
 
+      - name: Enrich published funds
+        env:
+          ENRICH_WORKERS: '8'
+          HTTP_TIMEOUT: '45'
+        run: python scripts/enrich_snapshot.py
+
+      - name: Rebuild compressed bundle
+        run: |
+          python - <<'PY'
+          import base64, gzip
+          p='data/mf-snapshot.json'
+          raw=open(p,'rb').read()
+          packed=base64.b64encode(gzip.compress(raw,compresslevel=9,mtime=0)).decode('ascii')+'\n'
+          open('data/mf-snapshot.json.gz.b64','w',encoding='ascii').write(packed)
+          print('raw',len(raw),'packed',len(packed))
+          PY
+
       - name: Validate snapshot
         run: |
           python - <<'PY'
           import base64, gzip, json
           p='data/mf-snapshot.json'
-          raw=open(p,'rb').read()
-          x=json.loads(raw)
-          assert x['schemaVersion']==2
+          raw=open(p,'rb').read(); x=json.loads(raw)
+          assert x['schemaVersion']==3
           assert x['stats']['publishedFunds']==240
           assert all(v['count']==30 for v in x['categories'].values())
+          assert x.get('quality',{}).get('syntheticResearchFieldsRemoved') is True
+          for block in x['categories'].values():
+            for f in block['funds']:
+              assert 'expense' not in f and 'consistency' not in f and 'researchFieldStatus' not in f
+              assert isinstance(f.get('periodRank'),dict)
+              assert isinstance(f.get('categoryAverage'),dict)
+              assert isinstance(f.get('navSeries'),list) or f.get('navSeries') is None
           packed=open('data/mf-snapshot.json.gz.b64','rt',encoding='ascii').read().strip()
           assert gzip.decompress(base64.b64decode(packed)) == raw
-          print('snapshot OK:', x['sourceAsOf'], x['stats'], 'bundle bytes:', len(packed))
+          print('snapshot V3 OK:', x['sourceAsOf'], x['stats'], x.get('quality'))
           PY
 
       - name: Commit changed snapshot
@@ -63,4 +86,5 @@ jobs:
             exit 0
           fi
           git commit -m "data: refresh mutual fund snapshot"
+          git pull --rebase origin main
           git push
