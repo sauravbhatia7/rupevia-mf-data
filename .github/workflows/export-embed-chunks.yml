@@ -1,0 +1,39 @@
+name: Export MF embed chunks
+
+on:
+  push:
+    paths:
+      - '.github/workflows/export-embed-chunks.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  split:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Split compressed bundle
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import json, shutil
+          s=Path('data/mf-snapshot.json.gz.b64').read_text(encoding='ascii').strip()
+          out=Path('data/embed-chunks')
+          if out.exists(): shutil.rmtree(out)
+          out.mkdir(parents=True)
+          size=4000
+          chunks=[s[i:i+size] for i in range(0,len(s),size)]
+          for i,c in enumerate(chunks):
+              (out/f'chunk-{i:02d}.txt').write_text(c,encoding='ascii')
+          (out/'manifest.json').write_text(json.dumps({'length':len(s),'chunkSize':size,'count':len(chunks)},separators=(',',':')),encoding='ascii')
+          print('bundle chars',len(s),'chunks',len(chunks))
+          PY
+      - name: Commit chunks
+        run: |
+          git config user.name "rupevia-data-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add data/embed-chunks
+          git commit -m "data: add temporary release embed chunks"
+          git push
