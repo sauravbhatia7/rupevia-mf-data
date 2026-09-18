@@ -4,9 +4,14 @@ from __future__ import annotations
 import base64, concurrent.futures as cf, datetime as dt, html, json, re, urllib.parse, urllib.request
 from pathlib import Path
 UNIVERSE=Path('data/mf-universe.json'); OUT=Path('data/amc-logos.json')
-UA='Mozilla/5.0 (compatible; Rupevia-AMC-Logo-Registry/1.2)'; TIMEOUT=8
+UA='Mozilla/5.0 (compatible; Rupevia-AMC-Logo-Registry/1.3)'; TIMEOUT=8
 DOMAINS={
-'360 one':'360.one','ask':'askmutualfund.com','abakkus':'abakkusmf.com','aditya birla':'adityabirlacapital.com','alphagrep':'alphagrepmf.ai','angel one':'angelonemf.com','axis':'axismf.com','bajaj finserv':'bajajamc.com','bandhan':'bandhanmutual.com','bank of india':'boimf.in','baroda bnp':'barodabnpparibasmf.in','canara robeco':'canararobeco.com','capitalmind':'capitalmindmf.com','choice':'choicemf.com','dsp':'dspim.com','edelweiss':'edelweissmf.com','franklin templeton':'franklintempletonindia.com','groww':'growwmf.in','hdfc':'hdfcfund.com','helios':'heliosmf.in','hsbc':'hsbc.co.in','icici prudential':'icicipruamc.com','iti':'itimf.com','invesco':'invescomutualfund.com','jio blackrock':'jioblackrockamc.com','jm financial':'jmfinancialmf.com','kotak mahindra':'kotakmf.com','lic':'licmf.com','mahindra manulife':'mahindramanulife.com','mirae asset':'miraeassetmf.co.in','monarch':'monarchamc.in','motilal oswal':'motilaloswalmf.com','nj':'njmutualfund.com','navi':'navimutualfund.com','nippon india':'nipponindiaim.com','old bridge':'oldbridgemf.com','pgim india':'pgimindiamf.com','ppfas':'ppfas.com','quantum':'quantummf.com','quant':'quantmutual.com','samco':'samcomf.com','sbi':'sbimf.com','shriram':'shriramamc.in','sundaram':'sundarammutual.com','tata':'tatamutualfund.com','taurus':'taurusmutualfund.com','wealth company':'wealthcompanyamc.in','trust':'trustmf.com','unifi':'unifimf.com','union':'unionmf.com','uti':'utimf.com','whiteoak':'whiteoakamc.com','zerodha':'zerodhafundhouse.com'}
+'360 one':'360.one','ask':'askmutualfund.com','abakkus':'abakkusmf.com','aditya birla':'adityabirlacapital.com','alphagrep':'alphagrepmf.ai','angel one':'angelonemf.com','axis':'axismf.com','bajaj finserv':'bajajamc.com','bandhan':'bandhanmutual.com','bank of india':'boimf.in','baroda bnp':'barodabnpparibasmf.in','canara robeco':'canararobeco.com','capitalmind':'capitalmindmf.com','choice':'choicemf.com','dsp':'dspim.com','edelweiss':'edelweissmf.com','franklin templeton':'franklintempletonindia.com','groww':'growwmf.in','hdfc':'hdfcfund.com','helios':'heliosmf.in','hsbc':'hsbc.co.in','icici prudential':'icicipruamc.com','iti':'itimf.com','invesco':'invescomutualfund.com','jio blackrock':'jioblackrockamc.com','jm financial':'jmfinancialmf.com','kotak mahindra':'kotakmf.com','lic':'licmf.com','mahindra manulife':'mahindramanulife.com','mirae asset':'miraeassetmf.co.in','monarch':'monarchamc.in','motilal oswal':'motilaloswalmf.com','nj':'njmutualfund.com','navi':'navimutualfund.com','nippon india':'mf.nipponindiaim.com','old bridge':'oldbridgemf.com','pgim india':'pgimindiamf.com','ppfas':'ppfas.com','quantum':'quantumamc.com','quant':'quantmutual.com','samco':'samcomf.com','sbi':'sbimf.com','shriram':'shriramamc.in','sundaram':'sundarammutual.com','tata':'tatamutualfund.com','taurus':'taurusmutualfund.com','wealth company':'wealthcompanyamc.in','trust':'trustmf.com','unifi':'unifimf.com','union':'unionmf.com','uti':'utimf.com','whiteoak':'whiteoakamc.com','zerodha':'zerodhafundhouse.com'}
+STATIC={
+'Nippon India Mutual Fund':'https://static.paytmmoney.com/amc-logo/RELMF.png',
+'Union Mutual Fund':'https://api.finity.in/static/img/amc-logo/low-res/union.png',
+'Sundaram Mutual Fund':'https://api.finity.in/static/img/amc-logo/high-res/sundaram.png',
+'Quantum Mutual Fund':'https://www.valueresearchonline.com/content-assets/images/228175_fund_manager_changes_in_a_few_schemes_of_quantum_mutual_fund__w1200__.jpg'}
 def norm(v):
  s=str(v or '').lower(); s=re.sub(r'asset management|mutual fund|fund house|limited|ltd\\.?',' ',s); return re.sub(r'\\s+',' ',re.sub(r'[^a-z0-9]+',' ',s)).strip()
 def domain_for(name):
@@ -22,7 +27,7 @@ def _mime(raw,header=''):
  return ''
 def _get_image(url):
  req=urllib.request.Request(url,headers={'User-Agent':UA,'Accept':'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8'})
- with urllib.request.urlopen(req,timeout=TIMEOUT) as r: raw=r.read(512000); ct=_mime(raw,r.headers.get('Content-Type',''))
+ with urllib.request.urlopen(req,timeout=TIMEOUT) as r: raw=r.read(768000); ct=_mime(raw,r.headers.get('Content-Type',''))
  if not ct or len(raw)<100: raise RuntimeError('not usable image')
  return ct,'data:'+ct+';base64,'+base64.b64encode(raw).decode('ascii')
 def _official_urls(domain):
@@ -37,19 +42,25 @@ def _official_urls(domain):
  except Exception: pass
  return list(dict.fromkeys(out))
 def fetch_logo(domain):
- q=urllib.parse.quote(domain,safe=''); qu=urllib.parse.quote('https://'+domain,safe='')
- cand=[('duckduckgo',f'https://icons.duckduckgo.com/ip3/{domain}.ico'),('google-url',f'https://www.google.com/s2/favicons?domain_url={qu}&sz=128'),('google',f'https://www.google.com/s2/favicons?domain={q}&sz=128'),('clearbit',f'https://logo.clearbit.com/{domain}?size=128')]+[('official',u) for u in _official_urls(domain)]
- errs=[]
- for provider,url in cand:
+ q=urllib.parse.quote(domain,safe=''); qu=urllib.parse.quote('https://'+domain,safe=''); errs=[]
+ for provider,url in [('duckduckgo',f'https://icons.duckduckgo.com/ip3/{domain}.ico'),('google-url',f'https://www.google.com/s2/favicons?domain_url={qu}&sz=128'),('google',f'https://www.google.com/s2/favicons?domain={q}&sz=128'),('clearbit',f'https://logo.clearbit.com/{domain}?size=128')]:
   try:
    ct,data=_get_image(url); return ct,data,provider
   except Exception as e: errs.append(provider+':'+str(e)[:60])
+ for url in _official_urls(domain):
+  try:
+   ct,data=_get_image(url); return ct,data,'official'
+  except Exception as e: errs.append('official:'+str(e)[:60])
  raise RuntimeError('; '.join(errs[-6:]))
 def resolve(amc,old):
  domain=domain_for(amc)
  if not domain: raise RuntimeError('no domain mapping')
  prev=old.get(amc) or {}
  if prev.get('domain')==domain and str(prev.get('dataUri') or '').startswith('data:image/'): return amc,prev
+ if amc in STATIC:
+  try:
+   mime,data=_get_image(STATIC[amc]); return amc,{'domain':domain,'mime':mime,'provider':'verified-static','dataUri':data}
+  except Exception: pass
  mime,data,provider=fetch_logo(domain); return amc,{'domain':domain,'mime':mime,'provider':provider,'dataUri':data}
 def main():
  u=json.loads(UNIVERSE.read_text(encoding='utf-8')); amcs=list(u.get('amcs') or []); old={}
