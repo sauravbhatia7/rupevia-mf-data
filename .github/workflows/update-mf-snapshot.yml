@@ -61,8 +61,11 @@ jobs:
           ACTIVE_FRESHNESS_DAYS: '7'
         run: python scripts/build_universe.py
 
-      - name: Build offline AMC logo registry
-        if: ${{ github.event_name != 'schedule' || steps.fresh.outputs.refresh == 'true' }}
+      # Logo refresh is useful, but it must never block NAV/data publication.
+      - name: Refresh offline AMC logo registry
+        id: logos
+        if: ${{ github.event_name == 'workflow_dispatch' || steps.fresh.outputs.refresh == 'true' }}
+        continue-on-error: true
         run: python scripts/build_amc_logos.py
 
       - name: Rebuild compressed ranked bundle
@@ -78,7 +81,7 @@ jobs:
           PY
 
       - name: Validate MF data
-        if: ${{ github.event_name != 'schedule' || steps.fresh.outputs.refresh == 'true' }}
+        if: ${{ github.event_name == 'workflow_dispatch' || steps.fresh.outputs.refresh == 'true' }}
         run: |
           python - <<'PY'
           import base64, gzip, json
@@ -103,18 +106,29 @@ jobs:
           assert len({str(f['schemeCode']) for f in u['funds']})==u['fundCount']
           up=open('data/mf-universe.json.gz.b64','rt',encoding='ascii').read().strip()
           assert json.loads(gzip.decompress(base64.b64decode(up)))['fundCount']==u['fundCount']
-          logos=json.load(open('data/amc-logos.json','r',encoding='utf-8'))
+          print('snapshot V3 OK:', x['sourceAsOf'], x['stats'])
+          print('full universe OK:', u['sourceAsOf'], u['fundCount'], 'funds /', u['amcCount'], 'AMCs')
+          PY
+
+      - name: Audit AMC logo coverage
+        if: ${{ github.event_name == 'workflow_dispatch' || steps.fresh.outputs.refresh == 'true' }}
+        continue-on-error: true
+        run: |
+          python - <<'PY'
+          import json, pathlib
+          p=pathlib.Path('data/amc-logos.json')
+          if not p.exists(): raise RuntimeError('AMC logo registry missing')
+          u=json.load(open('data/mf-universe.json','r',encoding='utf-8'))
+          logos=json.load(open(p,'r',encoding='utf-8'))
           assert logos['schemaVersion']==1
           assert logos['amcCount']==u['amcCount']==logos['logoCount']
           assert set(logos['logos'])==set(u['amcs'])
           assert all(str(v.get('dataUri') or '').startswith('data:image/') for v in logos['logos'].values())
-          print('snapshot V3 OK:', x['sourceAsOf'], x['stats'])
-          print('full universe OK:', u['sourceAsOf'], u['fundCount'], 'funds /', u['amcCount'], 'AMCs')
           print('offline AMC logos OK:', logos['logoCount'], '/', logos['amcCount'])
           PY
 
       - name: Upload app data inputs
-        if: ${{ github.event_name != 'schedule' || steps.fresh.outputs.refresh == 'true' }}
+        if: ${{ github.event_name == 'workflow_dispatch' || steps.fresh.outputs.refresh == 'true' }}
         uses: actions/upload-artifact@v4
         with:
           name: rupevia-mf-app-data
@@ -125,11 +139,12 @@ jobs:
           retention-days: 2
 
       - name: Commit changed MF data
-        if: ${{ github.event_name != 'schedule' || steps.fresh.outputs.refresh == 'true' }}
+        if: ${{ github.event_name == 'workflow_dispatch' || steps.fresh.outputs.refresh == 'true' }}
         run: |
           git config user.name "rupevia-data-bot"
           git config user.email "actions@users.noreply.github.com"
-          git add data/mf-snapshot.json data/mf-snapshot.json.gz.b64 data/mf-universe.json data/mf-universe.json.gz.b64 data/amc-logos.json
+          git add data/mf-snapshot.json data/mf-snapshot.json.gz.b64 data/mf-universe.json data/mf-universe.json.gz.b64
+          if [ -f data/amc-logos.json ]; then git add data/amc-logos.json; fi
           if git diff --cached --quiet; then
             echo "No MF data change"
             exit 0
