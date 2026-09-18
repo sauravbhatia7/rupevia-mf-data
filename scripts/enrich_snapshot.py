@@ -9,8 +9,8 @@ SNAP=Path(os.getenv('SNAPSHOT_OUT','data/mf-snapshot.json'))
 MFAPI=os.getenv('MFAPI_BASE','https://api.mfapi.in').rstrip('/')
 TIMEOUT=int(os.getenv('HTTP_TIMEOUT','45'))
 WORKERS=int(os.getenv('ENRICH_WORKERS','8'))
-UA='Rupevia-MF-Enrichment/4.0'
-PERIODS=['1M','3M','6M','1Y','3Y','5Y','10Y','10Y+']
+UA='Rupevia-MF-Enrichment/4.1'
+PERIODS=['1M','3M','6M','1Y','3Y','5Y','10Y','10Y+','Since Inception']
 CATEGORY_REFERENCE={
  'Large Cap':'Nifty 100 TRI','Mid Cap':'Nifty Midcap 150 TRI','Small Cap':'Nifty Smallcap 250 TRI',
  'Flexi Cap':'Nifty 500 TRI','ELSS':'Nifty 500 TRI','Index':'Scheme index varies','Hybrid':'Scheme benchmark varies','Debt':'Scheme benchmark varies'
@@ -72,18 +72,20 @@ def enrich_one(f):
     pts=sorted(set(pts))
     if len(pts)<2:raise RuntimeError('insufficient full history')
     latest_d,latest_nav=pts[-1];returns={}
-    for p in PERIODS[:-1]:
+    for p in ['1M','3M','6M','1Y','3Y','5Y','10Y']:
         b=at_or_before(pts,target(latest_d,p))
         if not b:continue
         v=pct(latest_nav,b[1]) if p in ('1M','3M','6M') else annualised(latest_nav,b[1],(latest_d-b[0]).days)
         if v is not None:returns[p]=v
-    inception_d,inception_nav=pts[0];years=(latest_d-inception_d).days/365.2425
+    inception_d,inception_nav=pts[0];inception_days=(latest_d-inception_d).days;years=inception_days/365.2425
+    si=annualised(latest_nav,inception_nav,inception_days) if inception_days>=365 else pct(latest_nav,inception_nav)
+    if si is not None:returns['Since Inception']=si
     if years>10:
-        v=annualised(latest_nav,inception_nav,(latest_d-inception_d).days)
+        v=annualised(latest_nav,inception_nav,inception_days)
         if v is not None:returns['10Y+']=v
     meta=payload.get('meta') or {}
     return {'returns':returns,'dayReturn':pct(latest_nav,pts[-2][1]),'inceptionDate':inception_d.isoformat(),
-      'historyYears':round(years,2),'navSeries':sample_monthly(pts),'historyPointsFull':len(pts),'mfapiMeta':{
+      'inceptionNav':round(inception_nav,6),'historyYears':round(years,2),'navSeries':sample_monthly(pts),'historyPointsFull':len(pts),'mfapiMeta':{
       'fundHouse':meta.get('fund_house'),'schemeType':meta.get('scheme_type'),'schemeCategory':meta.get('scheme_category')}}
 
 def norm(s):
@@ -159,10 +161,12 @@ def main():
             for f in fs:
                 f.setdefault('periodRank',{})[p]=ranks.get(str(f.get('schemeCode')));f.setdefault('categoryAverage',{})[p]=avg
         block['periods']=PERIODS;block['periodRankScope']='Rupevia published Top 30'
-    s['schemaVersion']=3;s['periods']=PERIODS
-    s['returnMethod']=dict(s.get('returnMethod') or {},**{'10Y+':'since-inception annualised CAGR; shown only when history exceeds 10 years'})
-    s['enrichment']={'fullHistory':'MFAPI AMFI mirror','ter':'AMFI official TER API (best effort)','periodRankScope':'Rupevia published Top 30','truthfulMissingFields':'null'}
-    s['quality']=dict(s.get('quality') or {},syntheticResearchFieldsRemoved=True,fullHistoryEnriched=len(funds)-len(failures),fullHistoryFailures=len(failures))
+    s['schemaVersion']=4;s['periods']=PERIODS
+    s['returnMethod']=dict(s.get('returnMethod') or {},**{
+      '10Y+':'since-inception annualised CAGR; shown only when history exceeds 10 years',
+      'Since Inception':'full-history inception return; annualised CAGR for history >=1 year, absolute return for newer funds'})
+    s['enrichment']={'fullHistory':'MFAPI AMFI mirror','ter':'AMFI official TER API (best effort)','periodRankScope':'Rupevia published Top 30','truthfulMissingFields':'null','sinceInception':'full-history exact'}
+    s['quality']=dict(s.get('quality') or {},syntheticResearchFieldsRemoved=True,fullHistoryEnriched=len(funds)-len(failures),fullHistoryFailures=len(failures),sinceInceptionExact=True)
     s['enrichmentFailures']=failures[:50]
     SNAP.write_text(json.dumps(s,ensure_ascii=False,separators=(',',':'))+'\n',encoding='utf-8')
     print('Enriched snapshot',len(funds),'TER matches',sum(1 for f in funds if f.get('expenseRatio') is not None),'failures',len(failures))
