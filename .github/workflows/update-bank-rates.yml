@@ -92,3 +92,5 @@ jobs:
           git commit -m "data: refresh verified bank deposit rates"
           git pull --rebase origin main
           git push
+
+# V2.1: vetted-baseline guard; automatic parsers may never publish synthetic fallback rates.
