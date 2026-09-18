@@ -2,6 +2,26 @@
   "verifiedAt": "2026-09-18T13:20:00Z",
   "method": "Manually vetted from current official bank rate tables. These overrides intentionally cover only standard callable retail products and the lowest/base savings slab. They must not be replaced by promotional, special-tenure, bulk or non-callable rates.",
   "banks": {
+    "sbi": {
+      "fdRates": {"12": 6.25, "24": 6.40, "36": 6.30, "60": 6.05},
+      "fdSeniorRates": {"12": 6.75, "24": 6.90, "36": 6.80, "60": 7.05},
+      "rdRates": {"12": 6.25, "24": 6.40, "36": 6.30, "60": 6.05},
+      "rdSeniorRates": {"12": 6.75, "24": 6.90, "36": 6.80, "60": 7.05},
+      "savingsRate": 2.50,
+      "productEffectiveDate": {"fd": "2025-12-15", "rd": "2025-12-15", "savings": "2025-06-15"},
+      "productStatus": {"fd": "verified-official-baseline", "rd": "verified-official-same-as-term-card", "savings": "verified-official"},
+      "sources": {"fd": "https://sbi.bank.in/web/interest-rates/deposit-rates/retail-domestic-term-deposits", "rd": "https://sbi.bank.in/web/personal-banking/investments-deposits/deposits/recurring-deposit", "savings": "https://sbi.bank.in/en/web/interest-rates"}
+    },
+    "hdfc": {
+      "fdRates": {"12": 6.25, "24": 6.45, "36": 6.45, "60": 6.40},
+      "fdSeniorRates": {"12": 6.75, "24": 6.95, "36": 6.95, "60": 6.90},
+      "rdRates": {"12": 6.25, "24": 6.45, "36": 6.45, "60": 6.40},
+      "rdSeniorRates": {"12": 6.75, "24": 6.95, "36": 6.95, "60": 6.90},
+      "savingsRate": 2.50,
+      "productEffectiveDate": {"fd": "2026-08-19", "rd": "2025-06-10", "savings": "2025-06-24"},
+      "productStatus": {"fd": "verified-official-baseline", "rd": "verified-official-baseline", "savings": "verified-official"},
+      "sources": {"fd": "https://www.hdfc.bank.in/fixed-deposit/fd-interest-rate", "rd": "https://www.hdfc.bank.in/interest-rates", "savings": "https://www.hdfc.bank.in/savings-account/savings-interest-rate"}
+    },
     "idbi": {
       "fdRates": {"12": 6.20, "24": 6.25, "36": 6.35, "60": 6.25},
       "fdSeniorRates": {"12": 6.70, "24": 6.75, "36": 6.85, "60": 6.75},
