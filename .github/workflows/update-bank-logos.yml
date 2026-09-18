@@ -1,0 +1,78 @@
+name: Update bank logos
+
+on:
+  schedule:
+    # Bank branding changes rarely; monthly refresh is sufficient.
+    - cron: '45 2 1 * *'
+  workflow_dispatch:
+  push:
+    paths:
+      - 'scripts/build_bank_logos.py'
+      - '.github/workflows/update-bank-logos.yml'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: rupevia-bank-logos
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependency
+        run: python -m pip install --disable-pip-version-check -q requests
+
+      - name: Build offline bank logo registry
+        run: python scripts/build_bank_logos.py
+
+      - name: Validate bank logo registry
+        run: |
+          python - <<'PY'
+          import base64, hashlib, json
+          x=json.load(open('data/bank-logos.json','r',encoding='utf-8'))
+          assert x['schemaVersion']==1
+          assert x['assetCount']==20==len(x['logos'])
+          expected={'sbi','hdfc','icici','axis','kotak','bob','pnb','canara','union','indian','boi','cbi','idbi','indus','federal','yes','idfc','rbl','au','bandhan'}
+          assert set(x['logos'])==expected
+          hashes=set()
+          for k,v in x['logos'].items():
+              uri=v['dataUri']; assert uri.startswith('data:image/svg+xml;base64,')
+              raw=base64.b64decode(uri.split(',',1)[1])
+              assert b'<svg' in raw.lower()
+              assert len(raw)>=80
+              h=hashlib.sha256(raw).hexdigest(); assert h==v['sha256']
+              hashes.add(h)
+          assert len(hashes)==20
+          print('offline bank logos OK: 20 / 20, distinct:',len(hashes))
+          PY
+
+      - name: Upload bank logo registry
+        uses: actions/upload-artifact@v4
+        with:
+          name: rupevia-bank-logos
+          path: data/bank-logos.json
+          retention-days: 7
+
+      - name: Commit changed bank logos
+        run: |
+          git config user.name "rupevia-data-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add data/bank-logos.json
+          if git diff --cached --quiet; then
+            echo "No bank-logo change"
+            exit 0
+          fi
+          git commit -m "assets: refresh verified offline bank logos"
+          git pull --rebase origin main
+          git push
