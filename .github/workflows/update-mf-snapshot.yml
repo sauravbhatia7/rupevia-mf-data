@@ -2,9 +2,9 @@ name: Update MF snapshot
 
 on:
   schedule:
-    # Every 30 minutes during India's evening/overnight NAV publication window.
-    # UTC 14:15..23:45 + 00:15..03:45 = IST 19:45..09:15.
-    - cron: '15,45 0-3,14-23 * * *'
+    # Every 15 minutes during India's evening/overnight NAV publication window.
+    # UTC 14:00..23:45 + 00:00..03:45 = IST 19:30..09:15.
+    - cron: '0,15,30,45 0-3,14-23 * * *'
   workflow_dispatch:
   push:
     paths:
@@ -16,7 +16,7 @@ permissions:
 
 concurrency:
   group: rupevia-mf-snapshot
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   build:
