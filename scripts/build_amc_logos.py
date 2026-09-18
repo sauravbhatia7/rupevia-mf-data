@@ -1,113 +1,71 @@
 #!/usr/bin/env python3
-"""Build a compact offline AMC logo registry for every AMC in mf-universe.json.
-Existing cached assets are reused. New logos are resolved from several independent
-image sources and official-site icons. The job fails unless every AMC has an image.
-"""
+"""Build an offline AMC logo registry with complete coverage."""
 from __future__ import annotations
-import base64, datetime as dt, html, json, re, urllib.parse, urllib.request
+import base64, concurrent.futures as cf, datetime as dt, html, json, re, urllib.parse, urllib.request
 from pathlib import Path
-
-UNIVERSE=Path('data/mf-universe.json')
-OUT=Path('data/amc-logos.json')
-UA='Mozilla/5.0 (compatible; Rupevia-AMC-Logo-Registry/1.1)'
-TIMEOUT=25
-
+UNIVERSE=Path('data/mf-universe.json'); OUT=Path('data/amc-logos.json')
+UA='Mozilla/5.0 (compatible; Rupevia-AMC-Logo-Registry/1.2)'; TIMEOUT=8
 DOMAINS={
-'360 one':'360.one','ask':'askmutualfund.com','abakkus':'abakkusmf.com','aditya birla':'adityabirlacapital.com','alphagrep':'alphagrepmf.ai','angel one':'angelonemf.com','axis':'axismf.com','bajaj finserv':'bajajamc.com','bandhan':'bandhanmutual.com','bank of india':'boimf.in','baroda bnp':'barodabnpparibasmf.in','canara robeco':'canararobeco.com','capitalmind':'capitalmindmf.com','choice':'choicemf.com','dsp':'dspim.com','edelweiss':'edelweissmf.com','franklin templeton':'franklintempletonindia.com','groww':'growwmf.in','hdfc':'hdfcfund.com','helios':'heliosmf.in','hsbc':'hsbc.co.in','icici prudential':'icicipruamc.com','iti':'itimf.com','invesco':'invescomutualfund.com','jio blackrock':'jioblackrockamc.com','jm financial':'jmfinancialmf.com','kotak mahindra':'kotakmf.com','kotak':'kotakmf.com','lic':'licmf.com','mahindra manulife':'mahindramanulife.com','mirae asset':'miraeassetmf.co.in','monarch':'monarchamc.in','motilal oswal':'motilaloswalmf.com','nj':'njmutualfund.com','navi':'navimutualfund.com','nippon india':'nipponindiaim.com','old bridge':'oldbridgemf.com','pgim india':'pgimindiamf.com','ppfas':'ppfas.com','quantum':'quantummf.com','quant':'quantmutual.com','samco':'samcomf.com','sbi':'sbimf.com','shriram':'shriramamc.in','sundaram':'sundarammutual.com','tata':'tatamutualfund.com','taurus':'taurusmutualfund.com','wealth company':'wealthcompanyamc.in','trust':'trustmf.com','unifi':'unifimf.com','union':'unionmf.com','uti':'utimf.com','whiteoak':'whiteoakamc.com','white oak':'whiteoakamc.com','zerodha':'zerodhafundhouse.com'
-}
-
-def norm(v:str)->str:
-    s=str(v or '').lower()
-    s=re.sub(r'asset management|mutual fund|fund house|limited|ltd\\.?',' ',s)
-    return re.sub(r'\\s+',' ',re.sub(r'[^a-z0-9]+',' ',s)).strip()
-
-def domain_for(name:str)->str:
-    n=norm(name); best=''
-    for k in DOMAINS:
-        if k in n and len(k)>len(best): best=k
-    return DOMAINS.get(best,'')
-
-def _mime(raw:bytes, header:str='')->str:
-    h=(header or '').split(';',1)[0].strip().lower()
-    if h.startswith('image/'): return h
-    if raw.startswith(b'\\x89PNG'): return 'image/png'
-    if raw[:3]==b'\\xff\\xd8\\xff': return 'image/jpeg'
-    if raw.startswith((b'GIF87a',b'GIF89a')): return 'image/gif'
-    if raw.startswith(b'\\x00\\x00\\x01\\x00'): return 'image/x-icon'
-    if b'<svg' in raw[:1500].lower(): return 'image/svg+xml'
-    return ''
-
-def _get_image(url:str)->tuple[str,str]:
-    req=urllib.request.Request(url,headers={'User-Agent':UA,'Accept':'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8'})
-    with urllib.request.urlopen(req,timeout=TIMEOUT) as r:
-        raw=r.read(512000); ct=_mime(raw,r.headers.get('Content-Type',''))
-    if not ct or len(raw)<100: raise RuntimeError(f'not a usable image ({len(raw)} bytes)')
-    return ct,'data:'+ct+';base64,'+base64.b64encode(raw).decode('ascii')
-
-def _official_icon_urls(domain:str)->list[str]:
-    root='https://'+domain+'/'
-    out=[root+'favicon.ico',root+'favicon.png',root+'apple-touch-icon.png']
-    try:
-        req=urllib.request.Request(root,headers={'User-Agent':UA,'Accept':'text/html,*/*'})
-        with urllib.request.urlopen(req,timeout=TIMEOUT) as r:
-            page=r.read(500000).decode('utf-8',errors='ignore')
-        for tag in re.findall(r'<link\\b[^>]*>',page,flags=re.I):
-            if not re.search(r'rel=["\\\'][^"\\\']*(?:icon|apple-touch-icon)[^"\\\']*["\\\']',tag,flags=re.I): continue
-            m=re.search(r'href=["\\\']([^"\\\']+)["\\\']',tag,flags=re.I)
-            if m: out.append(urllib.parse.urljoin(root,html.unescape(m.group(1))))
-    except Exception:
-        pass
-    seen=[]
-    for x in out:
-        if x not in seen: seen.append(x)
-    return seen
-
-def fetch_logo(domain:str)->tuple[str,str,str]:
-    q=urllib.parse.quote(domain,safe='')
-    qu=urllib.parse.quote('https://'+domain,safe='')
-    candidates=[
-        ('google-domain-url',f'https://www.google.com/s2/favicons?domain_url={qu}&sz=128'),
-        ('google-domain',f'https://www.google.com/s2/favicons?domain={q}&sz=128'),
-        ('duckduckgo',f'https://icons.duckduckgo.com/ip3/{domain}.ico'),
-        ('clearbit',f'https://logo.clearbit.com/{domain}?size=128'),
-    ]
-    candidates += [('official',u) for u in _official_icon_urls(domain)]
-    errors=[]
-    for provider,url in candidates:
-        try:
-            ct,data=_get_image(url)
-            return ct,data,provider
-        except Exception as exc:
-            errors.append(provider+': '+str(exc)[:70])
-    raise RuntimeError('; '.join(errors[-6:]))
-
-def main()->int:
-    u=json.loads(UNIVERSE.read_text(encoding='utf-8'))
-    amcs=list(u.get('amcs') or [])
-    old={}
-    if OUT.exists():
-        try: old=json.loads(OUT.read_text(encoding='utf-8')).get('logos') or {}
-        except Exception: old={}
-    logos={}; failures=[]
-    for amc in amcs:
-        domain=domain_for(amc)
-        if not domain:
-            failures.append({'amc':amc,'error':'no domain mapping'}); continue
-        prev=old.get(amc) or {}
-        if prev.get('domain')==domain and str(prev.get('dataUri') or '').startswith('data:image/'):
-            logos[amc]=prev; continue
-        try:
-            mime,data,provider=fetch_logo(domain)
-            logos[amc]={'domain':domain,'mime':mime,'provider':provider,'dataUri':data}
-            print('downloaded',amc,domain,provider,len(data))
-        except Exception as exc:
-            failures.append({'amc':amc,'domain':domain,'error':str(exc)[:350]})
-    if failures:
-        raise RuntimeError('AMC logo coverage failed: '+json.dumps(failures,ensure_ascii=False))
-    if len(logos)!=len(amcs): raise RuntimeError(f'logo coverage {len(logos)}/{len(amcs)}')
-    doc={'schemaVersion':1,'generatedAt':dt.datetime.now(dt.timezone.utc).replace(microsecond=0).isoformat().replace('+00:00','Z'),'sourceAsOf':u.get('sourceAsOf',''),'amcCount':len(amcs),'logoCount':len(logos),'logos':logos}
-    OUT.write_text(json.dumps(doc,ensure_ascii=False,separators=(',',':'))+'\\n',encoding='utf-8')
-    print('AMC logo registry OK:',len(logos),'/',len(amcs),'bytes',OUT.stat().st_size)
-    return 0
-
+'360 one':'360.one','ask':'askmutualfund.com','abakkus':'abakkusmf.com','aditya birla':'adityabirlacapital.com','alphagrep':'alphagrepmf.ai','angel one':'angelonemf.com','axis':'axismf.com','bajaj finserv':'bajajamc.com','bandhan':'bandhanmutual.com','bank of india':'boimf.in','baroda bnp':'barodabnpparibasmf.in','canara robeco':'canararobeco.com','capitalmind':'capitalmindmf.com','choice':'choicemf.com','dsp':'dspim.com','edelweiss':'edelweissmf.com','franklin templeton':'franklintempletonindia.com','groww':'growwmf.in','hdfc':'hdfcfund.com','helios':'heliosmf.in','hsbc':'hsbc.co.in','icici prudential':'icicipruamc.com','iti':'itimf.com','invesco':'invescomutualfund.com','jio blackrock':'jioblackrockamc.com','jm financial':'jmfinancialmf.com','kotak mahindra':'kotakmf.com','lic':'licmf.com','mahindra manulife':'mahindramanulife.com','mirae asset':'miraeassetmf.co.in','monarch':'monarchamc.in','motilal oswal':'motilaloswalmf.com','nj':'njmutualfund.com','navi':'navimutualfund.com','nippon india':'nipponindiaim.com','old bridge':'oldbridgemf.com','pgim india':'pgimindiamf.com','ppfas':'ppfas.com','quantum':'quantummf.com','quant':'quantmutual.com','samco':'samcomf.com','sbi':'sbimf.com','shriram':'shriramamc.in','sundaram':'sundarammutual.com','tata':'tatamutualfund.com','taurus':'taurusmutualfund.com','wealth company':'wealthcompanyamc.in','trust':'trustmf.com','unifi':'unifimf.com','union':'unionmf.com','uti':'utimf.com','whiteoak':'whiteoakamc.com','zerodha':'zerodhafundhouse.com'}
+def norm(v):
+ s=str(v or '').lower(); s=re.sub(r'asset management|mutual fund|fund house|limited|ltd\\.?',' ',s); return re.sub(r'\\s+',' ',re.sub(r'[^a-z0-9]+',' ',s)).strip()
+def domain_for(name):
+ n=norm(name); keys=[k for k in DOMAINS if k in n]; return DOMAINS[max(keys,key=len)] if keys else ''
+def _mime(raw,header=''):
+ h=(header or '').split(';',1)[0].strip().lower()
+ if h.startswith('image/'): return h
+ if raw.startswith(b'\\x89PNG'): return 'image/png'
+ if raw[:3]==b'\\xff\\xd8\\xff': return 'image/jpeg'
+ if raw.startswith((b'GIF87a',b'GIF89a')): return 'image/gif'
+ if raw.startswith(b'\\x00\\x00\\x01\\x00'): return 'image/x-icon'
+ if b'<svg' in raw[:1500].lower(): return 'image/svg+xml'
+ return ''
+def _get_image(url):
+ req=urllib.request.Request(url,headers={'User-Agent':UA,'Accept':'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8'})
+ with urllib.request.urlopen(req,timeout=TIMEOUT) as r: raw=r.read(512000); ct=_mime(raw,r.headers.get('Content-Type',''))
+ if not ct or len(raw)<100: raise RuntimeError('not usable image')
+ return ct,'data:'+ct+';base64,'+base64.b64encode(raw).decode('ascii')
+def _official_urls(domain):
+ root='https://'+domain+'/'; out=[root+'favicon.ico',root+'favicon.png',root+'apple-touch-icon.png']
+ try:
+  req=urllib.request.Request(root,headers={'User-Agent':UA,'Accept':'text/html,*/*'})
+  with urllib.request.urlopen(req,timeout=TIMEOUT) as r: page=r.read(400000).decode('utf-8',errors='ignore')
+  for tag in re.findall(r'<link\\b[^>]*>',page,flags=re.I):
+   if not re.search(r'rel=["\\\'][^"\\\']*(?:icon|apple-touch-icon)[^"\\\']*["\\\']',tag,flags=re.I): continue
+   m=re.search(r'href=["\\\']([^"\\\']+)["\\\']',tag,flags=re.I)
+   if m: out.append(urllib.parse.urljoin(root,html.unescape(m.group(1))))
+ except Exception: pass
+ return list(dict.fromkeys(out))
+def fetch_logo(domain):
+ q=urllib.parse.quote(domain,safe=''); qu=urllib.parse.quote('https://'+domain,safe='')
+ cand=[('duckduckgo',f'https://icons.duckduckgo.com/ip3/{domain}.ico'),('google-url',f'https://www.google.com/s2/favicons?domain_url={qu}&sz=128'),('google',f'https://www.google.com/s2/favicons?domain={q}&sz=128'),('clearbit',f'https://logo.clearbit.com/{domain}?size=128')]+[('official',u) for u in _official_urls(domain)]
+ errs=[]
+ for provider,url in cand:
+  try:
+   ct,data=_get_image(url); return ct,data,provider
+  except Exception as e: errs.append(provider+':'+str(e)[:60])
+ raise RuntimeError('; '.join(errs[-6:]))
+def resolve(amc,old):
+ domain=domain_for(amc)
+ if not domain: raise RuntimeError('no domain mapping')
+ prev=old.get(amc) or {}
+ if prev.get('domain')==domain and str(prev.get('dataUri') or '').startswith('data:image/'): return amc,prev
+ mime,data,provider=fetch_logo(domain); return amc,{'domain':domain,'mime':mime,'provider':provider,'dataUri':data}
+def main():
+ u=json.loads(UNIVERSE.read_text(encoding='utf-8')); amcs=list(u.get('amcs') or []); old={}
+ if OUT.exists():
+  try: old=json.loads(OUT.read_text(encoding='utf-8')).get('logos') or {}
+  except Exception: old={}
+ logos={}; failures=[]
+ with cf.ThreadPoolExecutor(max_workers=10) as ex:
+  futs={ex.submit(resolve,a,old):a for a in amcs}
+  for fut in cf.as_completed(futs):
+   a=futs[fut]
+   try:
+    k,v=fut.result(); logos[k]=v; print('logo',k,v.get('provider','cached'),len(v.get('dataUri','')))
+   except Exception as e: failures.append({'amc':a,'domain':domain_for(a),'error':str(e)[:350]})
+ if failures: raise RuntimeError('AMC logo coverage failed: '+json.dumps(failures,ensure_ascii=False))
+ if len(logos)!=len(amcs): raise RuntimeError(f'logo coverage {len(logos)}/{len(amcs)}')
+ doc={'schemaVersion':1,'generatedAt':dt.datetime.now(dt.timezone.utc).replace(microsecond=0).isoformat().replace('+00:00','Z'),'sourceAsOf':u.get('sourceAsOf',''),'amcCount':len(amcs),'logoCount':len(logos),'logos':{a:logos[a] for a in amcs}}
+ OUT.write_text(json.dumps(doc,ensure_ascii=False,separators=(',',':'))+'\\n',encoding='utf-8'); print('AMC logo registry OK:',len(logos),'/',len(amcs),'bytes',OUT.stat().st_size); return 0
 if __name__=='__main__': raise SystemExit(main())
