@@ -71,6 +71,16 @@
       "productEffectiveDate": {"fd": "2026-06-20", "rd": null, "savings": "2026-08-01"},
       "productStatus": {"fd": "verified-official-baseline", "rd": "unavailable", "savings": "verified-official-base-slab"},
       "sources": {"fd": "https://bandhan.bank.in/rates-charges", "rd": "https://bandhan.bank.in/rates-charges", "savings": "https://bandhan.bank.in/rates-charges"}
+    },
+    "idfc": {
+      "fdRates": {"12": 6.50, "24": 7.25, "36": 7.25, "60": 6.75},
+      "fdSeniorRates": {"12": 6.75, "24": 7.50, "36": 7.50, "60": 7.00},
+      "rdRates": {"12": 6.50, "24": 7.25, "36": 7.25},
+      "rdSeniorRates": {"12": 6.75, "24": 7.50, "36": 7.50},
+      "savingsRate": 2.50,
+      "productEffectiveDate": {"fd": "2026-07-25", "rd": "2026-07-25", "savings": "2026-04-21"},
+      "productStatus": {"fd": "verified-official-baseline", "rd": "verified-official-baseline-partial", "savings": "verified-official-base-slab"},
+      "sources": {"fd": "https://www.idfcfirst.bank.in/personal-banking/deposits/fixed-deposit/fd-interest-rates", "rd": "https://www.idfcfirst.bank.in/personal-banking/deposits/recurring-deposit/rd-interest-rates", "savings": "https://www.idfcfirst.bank.in/personal-banking/accounts/savings-account/interest-rate"}
     }
   }
 }
