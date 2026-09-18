@@ -7,8 +7,9 @@ from bs4 import BeautifulSoup
 
 OUT=Path(os.getenv('BANK_RATES_OUT','data/bank-rates.json'))
 SEED=Path(os.getenv('BANK_RATES_SEED','data/bank-rates-seed.json'))
+VETTED=Path(os.getenv('BANK_RATES_VETTED','data/bank-rates-vetted-overrides.json'))
 TIMEOUT=int(os.getenv('HTTP_TIMEOUT','30'))
-UA='Rupevia-Bank-Rates/2.1 (+GitHub Actions)'
+UA='Rupevia-Bank-Rates/2.2 (+GitHub Actions)'
 TARGETS=(12,24,36,60)
 MAX_DELTA=float(os.getenv('MAX_RATE_DELTA','0.80'))
 SUPPORTED_AUTO={'sbi','hdfc','kotak','pnb','canara','indian','boi','cbi'}
@@ -27,7 +28,7 @@ def valid_rate(v):
 def valid_savings(v):
     try: v=float(v)
     except: return False
-    return math.isfinite(v) and 1.5 <= v <= 5.0
+    return math.isfinite(v) and 1.5 <= v <= 7.5
 
 def near(v,base,delta=MAX_DELTA):
     return valid_rate(v) and valid_rate(base) and abs(float(v)-float(base)) <= delta
@@ -93,9 +94,28 @@ def merge_safe(base,new):
         if valid_rate(v) and (not valid_rate(old) or abs(float(v)-float(old))<=MAX_DELTA): out[k]=round(float(v),2)
     return out
 
+def apply_vetted(row,ov,verified_at):
+    if not ov: return row
+    for fld in ('fdRates','fdSeniorRates','rdRates','rdSeniorRates'):
+        vals=dict(ov.get(fld) or {})
+        for k,v in vals.items():
+            if str(k) not in {str(x) for x in TARGETS} or not valid_rate(v):
+                raise ValueError(f'Invalid vetted {row["id"]} {fld} {k}={v}')
+        row[fld]=vals
+    sv=ov.get('savingsRate')
+    if sv is not None and not valid_savings(sv): raise ValueError(f'Invalid vetted savings {row["id"]}={sv}')
+    row['savingsRate']=sv
+    row['productStatus']={'fd':'unavailable','rd':'unavailable','savings':'unavailable',**dict(ov.get('productStatus') or {})}
+    row['productEffectiveDate']={'fd':None,'rd':None,'savings':None,**dict(ov.get('productEffectiveDate') or {})}
+    row['sources']={**dict(row.get('sources') or {}),**dict(ov.get('sources') or {})}
+    row['sourceCheckedAt']=verified_at or row.get('sourceCheckedAt')
+    return row
+
 def main():
     if not SEED.exists(): raise SystemExit('bank-rates-seed.json missing')
     seed=json.loads(SEED.read_text(encoding='utf-8'))
+    vetted=json.loads(VETTED.read_text(encoding='utf-8')) if VETTED.exists() else {'banks':{}}
+    vetted_banks=dict(vetted.get('banks') or {})
     try: previous=json.loads(OUT.read_text(encoding='utf-8')) if OUT.exists() else seed
     except: previous=seed
     prev={b['id']:b for b in previous.get('banks',[])}
@@ -141,6 +161,7 @@ def main():
                     else: row['productStatus']['rd']='last-verified-official'
                 except Exception as e:
                     row['productStatus']['rd']='last-verified-official'; failures.append({'bank':bid,'product':'rd','error':str(e)[:160]})
+        row=apply_vetted(row,vetted_banks.get(bid),vetted.get('verifiedAt'))
         dates=[d for d in row['productEffectiveDate'].values() if d]
         row['effectiveDate']=max(dates) if dates else None
         row['verified']=bool(row['fdRates'] or row['rdRates'] or row.get('savingsRate') is not None)
@@ -148,13 +169,14 @@ def main():
     snap={
       'schemaVersion':2,'generatedAt':now,'sourceAsOf':max([b.get('effectiveDate') or '' for b in rows] or ['']),
       'bankCount':len(rows),'targetTenuresMonths':list(TARGETS),
-      'scope':seed['scope'],'method':seed['method']+' Automatic parsing is anchored to last vetted official card rates; implausible jumps are rejected and the last verified cache is retained.',
+      'scope':seed['scope'],'method':seed['method']+' Automatic parsing is anchored to last vetted official card rates; implausible jumps are rejected and the last verified cache is retained. Additional manually vetted official baselines are applied only to standard callable retail products; savings values marked base-slab represent the lowest balance slab.',
       'banks':rows,
       'stats':{'banksWithAnyVerified':sum(b['verified'] for b in rows),'fdBanksWith24M':sum('24' in b['fdRates'] for b in rows),'rdBanksWith24M':sum('24' in b['rdRates'] for b in rows),'savingsVerified':sum(b.get('savingsRate') is not None for b in rows)},
+      'quality':{'vettedOverrideCount':len(vetted_banks),'vettedOverridesVerifiedAt':vetted.get('verifiedAt')},
       'failures':failures[:100]
     }
     OUT.write_text(json.dumps(snap,ensure_ascii=False,separators=(',',':'))+'\n',encoding='utf-8')
-    print('Rupevia bank snapshot',snap['stats'],'as-of',snap['sourceAsOf'],'failures',len(failures))
-    if snap['stats']['fdBanksWith24M'] < 5 or snap['stats']['rdBanksWith24M'] < 5: raise SystemExit('Insufficient verified 24M coverage')
+    print('Rupevia bank snapshot',snap['stats'],'as-of',snap['sourceAsOf'],'vetted',len(vetted_banks),'failures',len(failures))
+    if snap['stats']['fdBanksWith24M'] < 10 or snap['stats']['rdBanksWith24M'] < 8: raise SystemExit('Insufficient verified 24M coverage')
 
 if __name__=='__main__': main()
