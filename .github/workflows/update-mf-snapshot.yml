@@ -40,7 +40,7 @@ jobs:
         run: python scripts/check_source_freshness.py
 
       - name: Build ranked snapshot
-        if: ${{ github.event_name != 'schedule' || steps.fresh.outputs.refresh == 'true' }}
+        if: ${{ github.event_name == 'workflow_dispatch' || steps.fresh.outputs.refresh == 'true' }}
         env:
           TOP_N: '30'
           MAX_WORKERS: '8'
@@ -48,14 +48,14 @@ jobs:
         run: python scripts/update_snapshot_mfapi.py
 
       - name: Enrich published funds
-        if: ${{ github.event_name != 'schedule' || steps.fresh.outputs.refresh == 'true' }}
+        if: ${{ github.event_name == 'workflow_dispatch' || steps.fresh.outputs.refresh == 'true' }}
         env:
           ENRICH_WORKERS: '8'
           HTTP_TIMEOUT: '45'
         run: python scripts/enrich_snapshot.py
 
       - name: Build full Direct Growth search universe
-        if: ${{ github.event_name != 'schedule' || steps.fresh.outputs.refresh == 'true' }}
+        if: ${{ github.event_name == 'workflow_dispatch' || steps.fresh.outputs.refresh == 'true' }}
         env:
           HTTP_TIMEOUT: '45'
           ACTIVE_FRESHNESS_DAYS: '7'
@@ -66,7 +66,7 @@ jobs:
         run: python scripts/build_amc_logos.py
 
       - name: Rebuild compressed ranked bundle
-        if: ${{ github.event_name != 'schedule' || steps.fresh.outputs.refresh == 'true' }}
+        if: ${{ github.event_name == 'workflow_dispatch' || steps.fresh.outputs.refresh == 'true' }}
         run: |
           python - <<'PY'
           import base64, gzip
@@ -96,7 +96,6 @@ jobs:
               assert isinstance(f.get('navSeries'),list) or f.get('navSeries') is None
           packed=open('data/mf-snapshot.json.gz.b64','rt',encoding='ascii').read().strip()
           assert gzip.decompress(base64.b64decode(packed)) == raw
-
           u=json.load(open('data/mf-universe.json','r',encoding='utf-8'))
           assert u['schemaVersion']==1
           assert u['fundCount']==len(u['funds']) and u['fundCount']>300
@@ -104,7 +103,6 @@ jobs:
           assert len({str(f['schemeCode']) for f in u['funds']})==u['fundCount']
           up=open('data/mf-universe.json.gz.b64','rt',encoding='ascii').read().strip()
           assert json.loads(gzip.decompress(base64.b64decode(up)))['fundCount']==u['fundCount']
-
           logos=json.load(open('data/amc-logos.json','r',encoding='utf-8'))
           assert logos['schemaVersion']==1
           assert logos['amcCount']==u['amcCount']==logos['logoCount']
