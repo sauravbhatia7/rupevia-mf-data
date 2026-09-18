@@ -40,7 +40,7 @@ jobs:
         run: python scripts/check_source_freshness.py
 
       - name: Build ranked snapshot
-        if: ${{ github.event_name == 'workflow_dispatch' || steps.fresh.outputs.refresh == 'true' }}
+        if: ${{ github.event_name == 'workflow_dispatch' || github.event_name == 'push' || steps.fresh.outputs.refresh == 'true' }}
         env:
           TOP_N: '30'
           MAX_WORKERS: '8'
@@ -48,14 +48,14 @@ jobs:
         run: python scripts/update_snapshot_mfapi.py
 
       - name: Enrich published funds
-        if: ${{ github.event_name == 'workflow_dispatch' || steps.fresh.outputs.refresh == 'true' }}
+        if: ${{ github.event_name == 'workflow_dispatch' || github.event_name == 'push' || steps.fresh.outputs.refresh == 'true' }}
         env:
           ENRICH_WORKERS: '8'
           HTTP_TIMEOUT: '45'
         run: python scripts/enrich_snapshot.py
 
       - name: Build full Direct Growth search universe
-        if: ${{ github.event_name == 'workflow_dispatch' || steps.fresh.outputs.refresh == 'true' }}
+        if: ${{ github.event_name == 'workflow_dispatch' || github.event_name == 'push' || steps.fresh.outputs.refresh == 'true' }}
         env:
           HTTP_TIMEOUT: '45'
           ACTIVE_FRESHNESS_DAYS: '7'
@@ -64,12 +64,12 @@ jobs:
       # Logo refresh is useful, but it must never block NAV/data publication.
       - name: Refresh offline AMC logo registry
         id: logos
-        if: ${{ github.event_name == 'workflow_dispatch' || steps.fresh.outputs.refresh == 'true' }}
+        if: ${{ github.event_name == 'workflow_dispatch' || github.event_name == 'push' || steps.fresh.outputs.refresh == 'true' }}
         continue-on-error: true
         run: python scripts/build_amc_logos.py
 
       - name: Rebuild compressed ranked bundle
-        if: ${{ github.event_name == 'workflow_dispatch' || steps.fresh.outputs.refresh == 'true' }}
+        if: ${{ github.event_name == 'workflow_dispatch' || github.event_name == 'push' || steps.fresh.outputs.refresh == 'true' }}
         run: |
           python - <<'PY'
           import base64, gzip
@@ -81,22 +81,26 @@ jobs:
           PY
 
       - name: Validate MF data
-        if: ${{ github.event_name == 'workflow_dispatch' || steps.fresh.outputs.refresh == 'true' }}
+        if: ${{ github.event_name == 'workflow_dispatch' || github.event_name == 'push' || steps.fresh.outputs.refresh == 'true' }}
         run: |
           python - <<'PY'
           import base64, gzip, json
           p='data/mf-snapshot.json'
           raw=open(p,'rb').read(); x=json.loads(raw)
-          assert x['schemaVersion']==3
+          assert x['schemaVersion']==4
           assert x['stats']['publishedFunds']==240
+          assert 'Since Inception' in x.get('periods',[])
           assert all(v['count']==30 for v in x['categories'].values())
           assert x.get('quality',{}).get('syntheticResearchFieldsRemoved') is True
+          assert x.get('quality',{}).get('sinceInceptionExact') is True
           for block in x['categories'].values():
             for f in block['funds']:
               assert 'expense' not in f and 'consistency' not in f and 'researchFieldStatus' not in f
               assert isinstance(f.get('periodRank'),dict)
               assert isinstance(f.get('categoryAverage'),dict)
               assert isinstance(f.get('navSeries'),list) or f.get('navSeries') is None
+              if isinstance((f.get('returns') or {}).get('Since Inception'),(int,float)):
+                assert isinstance((f.get('periodRank') or {}).get('Since Inception'),int)
           packed=open('data/mf-snapshot.json.gz.b64','rt',encoding='ascii').read().strip()
           assert gzip.decompress(base64.b64decode(packed)) == raw
           u=json.load(open('data/mf-universe.json','r',encoding='utf-8'))
@@ -106,12 +110,12 @@ jobs:
           assert len({str(f['schemeCode']) for f in u['funds']})==u['fundCount']
           up=open('data/mf-universe.json.gz.b64','rt',encoding='ascii').read().strip()
           assert json.loads(gzip.decompress(base64.b64decode(up)))['fundCount']==u['fundCount']
-          print('snapshot V3 OK:', x['sourceAsOf'], x['stats'])
+          print('snapshot V4 OK:', x['sourceAsOf'], x['stats'])
           print('full universe OK:', u['sourceAsOf'], u['fundCount'], 'funds /', u['amcCount'], 'AMCs')
           PY
 
       - name: Audit AMC logo coverage
-        if: ${{ github.event_name == 'workflow_dispatch' || steps.fresh.outputs.refresh == 'true' }}
+        if: ${{ github.event_name == 'workflow_dispatch' || github.event_name == 'push' || steps.fresh.outputs.refresh == 'true' }}
         continue-on-error: true
         run: |
           python - <<'PY'
@@ -128,7 +132,7 @@ jobs:
           PY
 
       - name: Upload app data inputs
-        if: ${{ github.event_name == 'workflow_dispatch' || steps.fresh.outputs.refresh == 'true' }}
+        if: ${{ github.event_name == 'workflow_dispatch' || github.event_name == 'push' || steps.fresh.outputs.refresh == 'true' }}
         uses: actions/upload-artifact@v4
         with:
           name: rupevia-mf-app-data
@@ -139,7 +143,7 @@ jobs:
           retention-days: 2
 
       - name: Commit changed MF data
-        if: ${{ github.event_name == 'workflow_dispatch' || steps.fresh.outputs.refresh == 'true' }}
+        if: ${{ github.event_name == 'workflow_dispatch' || github.event_name == 'push' || steps.fresh.outputs.refresh == 'true' }}
         run: |
           git config user.name "rupevia-data-bot"
           git config user.email "actions@users.noreply.github.com"
