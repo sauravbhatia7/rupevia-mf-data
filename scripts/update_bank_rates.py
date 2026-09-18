@@ -2,14 +2,13 @@
 from __future__ import annotations
 import datetime as dt, io, json, math, os, re
 from pathlib import Path
-from urllib.parse import urlparse
 import pandas as pd, requests
 from bs4 import BeautifulSoup
 
 OUT=Path(os.getenv('BANK_RATES_OUT','data/bank-rates.json'))
 SEED=Path(os.getenv('BANK_RATES_SEED','data/bank-rates-seed.json'))
 TIMEOUT=int(os.getenv('HTTP_TIMEOUT','30'))
-UA='Rupevia-Bank-Rates/2.0 (+GitHub Actions)'
+UA='Rupevia-Bank-Rates/2.1 (+GitHub Actions)'
 TARGETS=(12,24,36,60)
 MAX_DELTA=float(os.getenv('MAX_RATE_DELTA','0.80'))
 SUPPORTED_AUTO={'sbi','hdfc','kotak','pnb','canara','indian','boi','cbi'}
@@ -32,19 +31,6 @@ def valid_savings(v):
 
 def near(v,base,delta=MAX_DELTA):
     return valid_rate(v) and valid_rate(base) and abs(float(v)-float(base)) <= delta
-
-def date_from_text(text):
-    text=clean(text)
-    hits=[]
-    pats=[r'(?:w\.?e\.?f\.?|with effect from|effective from|applicable from|revised(?: rates)?(?: w\.?e\.?f\.?)?)\s*[:\-]?\s*(\d{1,2}(?:st|nd|rd|th)?(?:\s+|[-/.])(?:[A-Za-z]{3,9}|\d{1,2})(?:\s+|[-/.,])\d{2,4})']
-    for pat in pats:
-        for m in re.finditer(pat,text,re.I):
-            raw=re.sub(r'(st|nd|rd|th)','',m.group(1),flags=re.I).replace(',',' ')
-            raw=re.sub(r'\s+',' ',raw).strip(' .-')
-            for f in ('%d %B %Y','%d %b %Y','%d-%m-%Y','%d/%m/%Y','%d.%m.%Y','%d %B %y','%d %b %y'):
-                try: hits.append(dt.datetime.strptime(raw,f).date()); break
-                except: pass
-    return max(hits).isoformat() if hits else None
 
 def duration_range(label):
     s=clean(label).lower().replace('yrs','years').replace('yr','year').replace('mnths','months').replace('mths','months').replace('mth','month')
@@ -132,11 +118,11 @@ def main():
         row['productEffectiveDate']=dict(s.get('productEffectiveDate') or {})
         if bid in SUPPORTED_AUTO:
             try:
-                html=fetch(row['sources']['fd']); txt=BeautifulSoup(html,'html.parser').get_text(' ',strip=True)
+                html=fetch(row['sources']['fd'])
                 nr,ns=anchored_rates(html,row['fdRates'],row['fdSeniorRates'])
                 if nr:
                     row['fdRates']=merge_safe(row['fdRates'],nr); row['fdSeniorRates']=merge_safe(row['fdSeniorRates'],ns)
-                    row['productStatus']['fd']='verified-official-auto'; row['productEffectiveDate']['fd']=date_from_text(txt) or row['productEffectiveDate'].get('fd')
+                    row['productStatus']['fd']='verified-official-auto'
                 elif row['fdRates']: row['productStatus']['fd']='last-verified-official'
             except Exception as e:
                 if row['fdRates']: row['productStatus']['fd']='last-verified-official'
@@ -147,11 +133,11 @@ def main():
                 row['productEffectiveDate']['rd']=row['productEffectiveDate'].get('fd')
             elif row.get('rdRates'):
                 try:
-                    html=fetch(row['sources']['rd']); txt=BeautifulSoup(html,'html.parser').get_text(' ',strip=True)
+                    html=fetch(row['sources']['rd'])
                     nr,ns=anchored_rates(html,row['rdRates'],row['rdSeniorRates'])
                     if nr:
                         row['rdRates']=merge_safe(row['rdRates'],nr); row['rdSeniorRates']=merge_safe(row['rdSeniorRates'],ns)
-                        row['productStatus']['rd']='verified-official-auto'; row['productEffectiveDate']['rd']=date_from_text(txt) or row['productEffectiveDate'].get('rd')
+                        row['productStatus']['rd']='verified-official-auto'
                     else: row['productStatus']['rd']='last-verified-official'
                 except Exception as e:
                     row['productStatus']['rd']='last-verified-official'; failures.append({'bank':bid,'product':'rd','error':str(e)[:160]})
