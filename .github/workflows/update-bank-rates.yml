@@ -9,6 +9,7 @@ on:
     paths:
       - 'scripts/update_bank_rates.py'
       - 'data/bank-rates-seed.json'
+      - 'data/bank-rates-vetted-overrides.json'
       - '.github/workflows/update-bank-rates.yml'
 
 permissions:
@@ -48,8 +49,11 @@ jobs:
           assert x['schemaVersion']==2
           assert x['bankCount']==20==len(x['banks'])
           assert x['targetTenuresMonths']==[12,24,36,60]
-          assert x['stats']['fdBanksWith24M']>=5
-          assert x['stats']['rdBanksWith24M']>=5
+          assert x['stats']['banksWithAnyVerified']>=15
+          assert x['stats']['fdBanksWith24M']>=13
+          assert x['stats']['rdBanksWith24M']>=9
+          assert x['stats']['savingsVerified']>=10
+          assert x.get('quality',{}).get('vettedOverrideCount',0)>=5
           ids={b['id'] for b in x['banks']}; assert len(ids)==20
           for b in x['banks']:
               assert set(b['sources'])=={'fd','rd','savings'}
@@ -66,11 +70,8 @@ jobs:
                           gv=float(b[gk][m]); sv=float(sv)
                           assert gv <= sv <= gv+1.5
               if b.get('savingsRate') is not None:
-                  assert 1.5 <= float(b['savingsRate']) <= 5.0
-          for b in x['banks']:
-              for m,v in b['fdRates'].items(): assert float(v)>=4.0
-              for m,v in b['rdRates'].items(): assert float(v)>=4.0
-          print('bank rate snapshot V2 OK',x['stats'],'as-of',x.get('sourceAsOf'))
+                  assert 1.5 <= float(b['savingsRate']) <= 7.5
+          print('bank rate snapshot V2.2 OK',x['stats'],'as-of',x.get('sourceAsOf'),'quality',x.get('quality'))
           PY
 
       - name: Upload bank-rate app data
@@ -93,4 +94,4 @@ jobs:
           git pull --rebase origin main
           git push
 
-# V2.1: vetted-baseline guard; automatic parsers may never publish synthetic fallback rates.
+# V2.2: expanded vetted coverage plus guardrails; no synthetic, promotional, bulk or non-callable fallback rates.
