@@ -2,12 +2,13 @@ name: Update bank deposit rates
 
 on:
   schedule:
-    # Daily at 06:45 IST. Bank retail rates change far less often than MF NAVs.
+    # Daily at 06:45 IST. Retail bank deposit rates change far less often than MF NAVs.
     - cron: '15 1 * * *'
   workflow_dispatch:
   push:
     paths:
       - 'scripts/update_bank_rates.py'
+      - 'data/bank-rates-seed.json'
       - '.github/workflows/update-bank-rates.yml'
 
 permissions:
@@ -36,28 +37,40 @@ jobs:
       - name: Build bank-rate snapshot from official sources
         env:
           HTTP_TIMEOUT: '30'
+          MAX_RATE_DELTA: '0.80'
         run: python scripts/update_bank_rates.py
 
       - name: Validate bank-rate snapshot
         run: |
           python - <<'PY'
-          import json
+          import json, math
           x=json.load(open('data/bank-rates.json','r',encoding='utf-8'))
-          assert x['schemaVersion']==1
+          assert x['schemaVersion']==2
           assert x['bankCount']==20==len(x['banks'])
           assert x['targetTenuresMonths']==[12,24,36,60]
-          assert x['stats']['banksWithAnyVerified']>0
-          names={b['name'] for b in x['banks']}
-          assert len(names)==20
+          assert x['stats']['fdBanksWith24M']>=5
+          assert x['stats']['rdBanksWith24M']>=5
+          ids={b['id'] for b in x['banks']}; assert len(ids)==20
           for b in x['banks']:
               assert set(b['sources'])=={'fd','rd','savings'}
-              for k in ('fdRates','rdRates'):
+              assert isinstance(b.get('productStatus'),dict)
+              assert isinstance(b.get('productEffectiveDate'),dict)
+              for k in ('fdRates','rdRates','fdSeniorRates','rdSeniorRates'):
                   assert isinstance(b[k],dict)
                   for m,v in b[k].items():
-                      assert m in {'12','24','36','60'} and 0 < float(v) < 15
-              if b['savingsRate'] is not None:
-                  assert 0 < float(b['savingsRate']) < 10
-          print('bank rate snapshot OK',x['stats'],'as-of',x.get('sourceAsOf'))
+                      assert m in {'12','24','36','60'}
+                      assert 4.0 <= float(v) <= 9.5
+              for gk,sk in (('fdRates','fdSeniorRates'),('rdRates','rdSeniorRates')):
+                  for m,sv in b[sk].items():
+                      if m in b[gk]:
+                          gv=float(b[gk][m]); sv=float(sv)
+                          assert gv <= sv <= gv+1.5
+              if b.get('savingsRate') is not None:
+                  assert 1.5 <= float(b['savingsRate']) <= 5.0
+          for b in x['banks']:
+              for m,v in b['fdRates'].items(): assert float(v)>=4.0
+              for m,v in b['rdRates'].items(): assert float(v)>=4.0
+          print('bank rate snapshot V2 OK',x['stats'],'as-of',x.get('sourceAsOf'))
           PY
 
       - name: Upload bank-rate app data
@@ -76,6 +89,6 @@ jobs:
             echo "No bank-rate change"
             exit 0
           fi
-          git commit -m "data: refresh bank deposit rates"
+          git commit -m "data: refresh verified bank deposit rates"
           git pull --rebase origin main
           git push
