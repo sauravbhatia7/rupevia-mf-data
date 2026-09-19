@@ -84,23 +84,45 @@ jobs:
         if: ${{ github.event_name == 'workflow_dispatch' || github.event_name == 'push' || steps.fresh.outputs.refresh == 'true' }}
         run: |
           python - <<'PY'
-          import base64, gzip, json
+          import base64, datetime as dt, gzip, json, math
+          from zoneinfo import ZoneInfo
           p='data/mf-snapshot.json'
           raw=open(p,'rb').read(); x=json.loads(raw)
+          cats=['Large Cap','Mid Cap','Small Cap','Flexi Cap','ELSS','Index','Hybrid','Debt']
           assert x['schemaVersion']==4
+          assert x['topN']==30
+          assert set(x['categories'])==set(cats)
           assert x['stats']['publishedFunds']==240
           assert 'Since Inception' in x.get('periods',[])
-          assert all(v['count']==30 for v in x['categories'].values())
           assert x.get('quality',{}).get('syntheticResearchFieldsRemoved') is True
           assert x.get('quality',{}).get('sinceInceptionExact') is True
-          for block in x['categories'].values():
-            for f in block['funds']:
-              assert 'expense' not in f and 'consistency' not in f and 'researchFieldStatus' not in f
+          assert x.get('quality',{}).get('excludesStaleSchemes') is True
+          assert x.get('quality',{}).get('dateSanityVersion')==1
+          assert x.get('quality',{}).get('antiDowngrade') is True
+          src=dt.date.fromisoformat(x['sourceAsOf'])
+          generated=dt.datetime.fromisoformat(x['generatedAt'].replace('Z','+00:00')).astimezone(ZoneInfo('Asia/Kolkata')).date()
+          today=dt.datetime.now(dt.timezone.utc).astimezone(ZoneInfo('Asia/Kolkata')).date()
+          assert src<=generated and src<=today
+          freshness=int(x.get('quality',{}).get('activeNavFreshnessDays',7))
+          codes=set(); total=0
+          for cat in cats:
+            block=x['categories'][cat]; assert block['count']==30 and len(block['funds'])==30
+            for i,f in enumerate(block['funds'],1):
+              assert f['rank']==i and f['category']==cat
+              code=str(f['schemeCode']); assert code.isdigit() and code not in codes; codes.add(code)
+              assert math.isfinite(float(f['nav'])) and float(f['nav'])>0
+              nd=dt.date.fromisoformat(f['navDate']); assert nd<=src and (src-nd).days<=freshness
+              assert isinstance(f.get('returns'),dict) and any(isinstance(f['returns'].get(q),(int,float)) for q in ('3Y','1Y','6M'))
               assert isinstance(f.get('periodRank'),dict)
               assert isinstance(f.get('categoryAverage'),dict)
               assert isinstance(f.get('navSeries'),list) or f.get('navSeries') is None
+              prev=f.get('previousRank'); expected=0 if prev is None else int(prev)-i
+              assert int(f.get('rankChange',0))==expected
+              assert f.get('rankDirection')==('—' if expected==0 else ('↑' if expected>0 else '↓'))
               if isinstance((f.get('returns') or {}).get('Since Inception'),(int,float)):
                 assert isinstance((f.get('periodRank') or {}).get('Since Inception'),int)
+              total+=1
+          assert total==240 and len(codes)==240
           packed=open('data/mf-snapshot.json.gz.b64','rt',encoding='ascii').read().strip()
           assert gzip.decompress(base64.b64decode(packed)) == raw
           u=json.load(open('data/mf-universe.json','r',encoding='utf-8'))
@@ -110,8 +132,8 @@ jobs:
           assert len({str(f['schemeCode']) for f in u['funds']})==u['fundCount']
           up=open('data/mf-universe.json.gz.b64','rt',encoding='ascii').read().strip()
           assert json.loads(gzip.decompress(base64.b64decode(up)))['fundCount']==u['fundCount']
-          print('snapshot V4 OK:', x['sourceAsOf'], x['stats'])
-          print('full universe OK:', u['sourceAsOf'], u['fundCount'], 'funds /', u['amcCount'], 'AMCs')
+          print('snapshot V4 strict OK:',x['sourceAsOf'],x['stats'],x['quality'])
+          print('full universe OK:',u['sourceAsOf'],u['fundCount'],'funds /',u['amcCount'],'AMCs')
           PY
 
       - name: Audit AMC logo coverage
@@ -128,7 +150,7 @@ jobs:
           assert logos['amcCount']==u['amcCount']==logos['logoCount']
           assert set(logos['logos'])==set(u['amcs'])
           assert all(str(v.get('dataUri') or '').startswith('data:image/') for v in logos['logos'].values())
-          print('offline AMC logos OK:', logos['logoCount'], '/', logos['amcCount'])
+          print('offline AMC logos OK:',logos['logoCount'],'/',logos['amcCount'])
           PY
 
       - name: Upload app data inputs

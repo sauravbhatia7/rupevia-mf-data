@@ -42,30 +42,37 @@ jobs:
       - name: Validate benchmark snapshot
         run: |
           python - <<'PY'
-          import json, math
+          import datetime as dt, json, math
+          from zoneinfo import ZoneInfo
           x=json.load(open('data/benchmark-returns.json','r',encoding='utf-8'))
+          ids={'nifty-50':'Nifty 50 TRI','nifty-100':'Nifty 100 TRI','nifty-200':'Nifty 200 TRI','nifty-500':'Nifty 500 TRI','nifty-next-50':'Nifty Next 50 TRI','nifty-midcap-150':'Nifty Midcap 150 TRI','nifty-midcap-select':'Nifty Midcap Select TRI','nifty-smallcap-250':'Nifty Smallcap 250 TRI','nifty-smallcap-100':'Nifty Smallcap 100 TRI'}
           assert x['schemaVersion']==1
           assert x['provider']=='NSE Indices Limited'
+          assert x['sourceType']=='official Total Return Index history'
           assert x['quality']['syntheticValues'] is False
           assert x['quality']['totalReturnIndexOnly'] is True
-          assert x['quality']['benchmarkCount']>=7
-          req={'Nifty 50 TRI','Nifty 100 TRI','Nifty 500 TRI','Nifty Midcap 150 TRI','Nifty Smallcap 250 TRI'}
-          by={b['displayName']:b for b in x['benchmarks']}
-          assert req <= set(by)
-          for name,b in by.items():
+          assert x['quality']['benchmarkCount']==9
+          assert x['quality']['failedBenchmarks']==0
+          assert x['quality']['dateSanityVersion']==1
+          assert x['quality']['antiDowngrade'] is True
+          assert len(x['benchmarks'])==9 and x.get('failures')==[]
+          src=dt.date.fromisoformat(x['sourceAsOf'])
+          generated=dt.datetime.fromisoformat(x['generatedAt'].replace('Z','+00:00')).astimezone(ZoneInfo('Asia/Kolkata')).date()
+          today=dt.datetime.now(dt.timezone.utc).astimezone(ZoneInfo('Asia/Kolkata')).date()
+          assert src<=generated and src<=today
+          seen=set()
+          for b in x['benchmarks']:
+              assert ids.get(b['id'])==b['displayName'] and b['id'] not in seen; seen.add(b['id'])
               assert b['status']=='verified-official'
-              assert b['latestValue']>0
-              assert b['latestDate']
               assert b['provider']=='NSE Indices Limited'
+              assert 'Total Return Index' in b['methodology']
+              assert math.isfinite(float(b['latestValue'])) and b['latestValue']>0
+              latest=dt.date.fromisoformat(b['latestDate']); assert latest<=src and (src-latest).days<=3
               assert isinstance(b.get('anchors'),dict)
-              for p in ('1M','3M','6M','1Y','3Y','5Y'):
-                  assert p in b['returns'], (name,p)
-              for p,v in b['returns'].items():
-                  assert p in {'1M','3M','6M','1Y','3Y','5Y','10Y'}
-                  assert math.isfinite(float(v)) and -99<float(v)<200
-          small=by['Nifty Smallcap 250 TRI']
-          assert isinstance(small['returns'].get('3M'),(int,float))
-          print('benchmark TRI snapshot OK',x['quality'],'as-of',x['sourceAsOf'],'smallcap250 3M',small['returns']['3M'])
+              for p in ('1M','3M','6M','1Y','3Y','5Y','10Y'):
+                  assert p in b['returns'] and math.isfinite(float(b['returns'][p])), (b['displayName'],p)
+          assert set(seen)==set(ids)
+          print('benchmark TRI strict snapshot OK',x['quality'],'as-of',x['sourceAsOf'])
           PY
 
       - name: Upload benchmark app data
