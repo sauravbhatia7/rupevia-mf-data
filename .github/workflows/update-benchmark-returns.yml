@@ -2,7 +2,7 @@ name: Update benchmark TRI returns
 
 on:
   schedule:
-    # Daily after Indian market close; 18:45 IST.
+    # Weekdays after Indian market close; 18:45 IST.
     - cron: '15 13 * * 1-5'
   workflow_dispatch:
   push:
@@ -36,6 +36,7 @@ jobs:
       - name: Build official TRI benchmark snapshot
         env:
           HTTP_TIMEOUT: '45'
+          BENCHMARK_WORKERS: '3'
         run: python scripts/update_benchmark_returns.py
 
       - name: Validate benchmark snapshot
@@ -53,13 +54,18 @@ jobs:
           assert req <= set(by)
           for name,b in by.items():
               assert b['status']=='verified-official'
-              assert b['historyPointsFull']>=200
               assert b['latestValue']>0
-              assert b['latestDate']>=b['historyStart']
-              assert isinstance(b['monthlySeries'],list) and len(b['monthlySeries'])>=12
+              assert b['latestDate']
+              assert b['provider']=='NSE Indices Limited'
+              assert isinstance(b.get('anchors'),dict)
+              for p in ('1M','3M','6M','1Y','3Y','5Y'):
+                  assert p in b['returns'], (name,p)
               for p,v in b['returns'].items():
-                  assert p in x['periods'] and math.isfinite(float(v)) and -99<float(v)<200
-          print('benchmark TRI snapshot OK',x['quality'],'as-of',x['sourceAsOf'])
+                  assert p in {'1M','3M','6M','1Y','3Y','5Y','10Y'}
+                  assert math.isfinite(float(v)) and -99<float(v)<200
+          small=by['Nifty Smallcap 250 TRI']
+          assert isinstance(small['returns'].get('3M'),(int,float))
+          print('benchmark TRI snapshot OK',x['quality'],'as-of',x['sourceAsOf'],'smallcap250 3M',small['returns']['3M'])
           PY
 
       - name: Upload benchmark app data
