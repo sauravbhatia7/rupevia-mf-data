@@ -153,10 +153,11 @@ jobs:
           u=json.load(open('data/mf-universe.json','r',encoding='utf-8'))
           logos=json.load(open(p,'r',encoding='utf-8'))
           assert logos['schemaVersion']==1
-          assert logos['amcCount']==u['amcCount']==logos['logoCount']
-          assert set(logos['logos'])==set(u['amcs'])
-          assert all(str(v.get('dataUri') or '').startswith('data:image/') for v in logos['logos'].values())
-          print('offline AMC logos OK:',logos['logoCount'],'/',logos['amcCount'])
+          assert logos['amcCount']==logos['logoCount']
+          missing=set(u['amcs'])-set(logos['logos'])
+          assert not missing, f'missing AMC logos: {sorted(missing)}'
+          assert all(str(logos['logos'][a].get('dataUri') or '').startswith('data:image/') for a in u['amcs'])
+          print('offline AMC logos OK for current universe:',u['amcCount'],'/',u['amcCount'],'registry total',logos['logoCount'])
           PY
 
       - name: Upload app data inputs
