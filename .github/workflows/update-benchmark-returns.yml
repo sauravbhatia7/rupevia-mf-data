@@ -1,0 +1,83 @@
+name: Update benchmark TRI returns
+
+on:
+  schedule:
+    # Daily after Indian market close; 18:45 IST.
+    - cron: '15 13 * * 1-5'
+  workflow_dispatch:
+  push:
+    paths:
+      - 'scripts/update_benchmark_returns.py'
+      - '.github/workflows/update-benchmark-returns.yml'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: rupevia-benchmark-returns
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install HTTP dependency
+        run: python -m pip install --disable-pip-version-check -q requests
+
+      - name: Build official TRI benchmark snapshot
+        env:
+          HTTP_TIMEOUT: '45'
+        run: python scripts/update_benchmark_returns.py
+
+      - name: Validate benchmark snapshot
+        run: |
+          python - <<'PY'
+          import json, math
+          x=json.load(open('data/benchmark-returns.json','r',encoding='utf-8'))
+          assert x['schemaVersion']==1
+          assert x['provider']=='NSE Indices Limited'
+          assert x['quality']['syntheticValues'] is False
+          assert x['quality']['totalReturnIndexOnly'] is True
+          assert x['quality']['benchmarkCount']>=7
+          req={'Nifty 50 TRI','Nifty 100 TRI','Nifty 500 TRI','Nifty Midcap 150 TRI','Nifty Smallcap 250 TRI'}
+          by={b['displayName']:b for b in x['benchmarks']}
+          assert req <= set(by)
+          for name,b in by.items():
+              assert b['status']=='verified-official'
+              assert b['historyPointsFull']>=200
+              assert b['latestValue']>0
+              assert b['latestDate']>=b['historyStart']
+              assert isinstance(b['monthlySeries'],list) and len(b['monthlySeries'])>=12
+              for p,v in b['returns'].items():
+                  assert p in x['periods'] and math.isfinite(float(v)) and -99<float(v)<200
+          print('benchmark TRI snapshot OK',x['quality'],'as-of',x['sourceAsOf'])
+          PY
+
+      - name: Upload benchmark app data
+        uses: actions/upload-artifact@v4
+        with:
+          name: rupevia-benchmark-returns
+          path: data/benchmark-returns.json
+          retention-days: 3
+
+      - name: Commit changed benchmark data
+        run: |
+          git config user.name "rupevia-data-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add data/benchmark-returns.json
+          if git diff --cached --quiet; then
+            echo "No benchmark change"
+            exit 0
+          fi
+          git commit -m "data: refresh official benchmark TRI returns"
+          git pull --rebase origin main
+          git push
