@@ -72,17 +72,25 @@ def enrich_one(f):
     pts=sorted(set(pts))
     if len(pts)<2:raise RuntimeError('insufficient full history')
     latest_d,latest_nav=pts[-1];returns={}
+    # Some legacy AMFI series contain a face-value / NAV-denomination reset (for
+    # example ~100x) that is not an investment return. Never calculate a return
+    # across such a discontinuity; truthful missing data is safer than a fake CAGR.
+    break_d=None
+    for (d0,n0),(d1,n1) in zip(pts,pts[1:]):
+        ratio=n1/n0 if n0>0 else 1
+        if ratio>20 or ratio<0.05: break_d=d1
     for p in ['1M','3M','6M','1Y','3Y','5Y','10Y']:
         b=at_or_before(pts,target(latest_d,p))
-        if not b:continue
+        if not b or (break_d and b[0] < break_d):continue
         v=pct(latest_nav,b[1]) if p in ('1M','3M','6M') else annualised(latest_nav,b[1],(latest_d-b[0]).days)
         if v is not None:returns[p]=v
     inception_d,inception_nav=pts[0];inception_days=(latest_d-inception_d).days;years=inception_days/365.2425
-    si=annualised(latest_nav,inception_nav,inception_days) if inception_days>=365 else pct(latest_nav,inception_nav)
-    if si is not None:returns['Since Inception']=si
-    if years>10:
-        v=annualised(latest_nav,inception_nav,inception_days)
-        if v is not None:returns['10Y+']=v
+    if not break_d:
+        si=annualised(latest_nav,inception_nav,inception_days) if inception_days>=365 else pct(latest_nav,inception_nav)
+        if si is not None:returns['Since Inception']=si
+        if years>10:
+            v=annualised(latest_nav,inception_nav,inception_days)
+            if v is not None:returns['10Y+']=v
     meta=payload.get('meta') or {}
     return {'returns':returns,'dayReturn':pct(latest_nav,pts[-2][1]),'inceptionDate':inception_d.isoformat(),
       'inceptionNav':round(inception_nav,6),'historyYears':round(years,2),'navSeries':sample_monthly(pts),'historyPointsFull':len(pts),'mfapiMeta':{
@@ -165,7 +173,7 @@ def main():
     s['returnMethod']=dict(s.get('returnMethod') or {},**{
       '10Y+':'since-inception annualised CAGR; shown only when history exceeds 10 years',
       'Since Inception':'full-history inception return; annualised CAGR for history >=1 year, absolute return for newer funds'})
-    s['enrichment']={'fullHistory':'MFAPI AMFI mirror','ter':'AMFI official TER API (best effort)','periodRankScope':'Rupevia published Top 30','truthfulMissingFields':'null','sinceInception':'full-history exact'}
+    s['enrichment']={'fullHistory':'MFAPI AMFI mirror','ter':'AMFI official TER API (best effort)','periodRankScope':'Rupevia published Top 30','truthfulMissingFields':'null','sinceInception':'full-history exact when NAV denomination is comparable; otherwise null'}
     s['quality']=dict(s.get('quality') or {},syntheticResearchFieldsRemoved=True,fullHistoryEnriched=len(funds)-len(failures),fullHistoryFailures=len(failures),sinceInceptionExact=True)
     s['enrichmentFailures']=failures[:50]
     SNAP.write_text(json.dumps(s,ensure_ascii=False,separators=(',',':'))+'\n',encoding='utf-8')
