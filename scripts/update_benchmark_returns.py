@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 import datetime as dt
+import html
 import json, math, os, time
 from pathlib import Path
 import requests
@@ -9,7 +10,7 @@ OUT=Path(os.getenv('BENCHMARK_OUT','data/benchmark-returns.json'))
 URL='https://www.niftyindices.com/Backpage.aspx/getTotalReturnIndexString'
 REPORT_URL='https://www.niftyindices.com/reports/historical-data'
 TIMEOUT=int(os.getenv('HTTP_TIMEOUT','45'))
-UA='Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/149 Safari/537.36 Rupevia-Benchmark-Updater/1.0'
+UA='Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/149 Safari/537.36 Rupevia-Benchmark-Updater/1.1'
 PERIODS=['1M','3M','6M','1Y','3Y','5Y','10Y','10Y+','Since Inception']
 INDEXES={
  'Nifty 50 TRI':['NIFTY 50'],
@@ -27,6 +28,26 @@ CORE={'Nifty 50 TRI','Nifty 100 TRI','Nifty 500 TRI','Nifty Midcap 150 TRI','Nif
 def fmt_date(d:dt.date)->str:
     return d.strftime('%d-%b-%Y')
 
+def decode_rows(value):
+    if isinstance(value,list): return value
+    raw=html.unescape(str(value or '').strip())
+    last=None
+    for _ in range(3):
+        try:
+            parsed=json.loads(raw)
+            if isinstance(parsed,list): return parsed
+            if isinstance(parsed,str):
+                raw=html.unescape(parsed.strip()); continue
+            last=RuntimeError(f'unexpected decoded type {type(parsed).__name__}')
+            break
+        except Exception as e:
+            last=e
+            newer=html.unescape(raw)
+            if newer!=raw:
+                raw=newer; continue
+            break
+    raise RuntimeError(f'TRI decode failed: {last}; prefix={raw[:120]!r}')
+
 def fetch_rows(name:str,start:dt.date,end:dt.date,attempts=3):
     headers={
       'Content-Type':'application/json; charset=UTF-8',
@@ -42,9 +63,7 @@ def fetch_rows(name:str,start:dt.date,end:dt.date,attempts=3):
         try:
             r=requests.post(URL,headers=headers,data=json.dumps(body),timeout=TIMEOUT)
             r.raise_for_status()
-            outer=r.json(); d=outer.get('d',[])
-            rows=json.loads(d) if isinstance(d,str) else d
-            if not isinstance(rows,list): raise RuntimeError('unexpected response shape')
+            outer=r.json(); rows=decode_rows(outer.get('d',[]))
             if not rows: raise RuntimeError('empty TRI history')
             return rows
         except Exception as e:
