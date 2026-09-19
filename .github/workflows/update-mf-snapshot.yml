@@ -130,6 +130,12 @@ jobs:
           assert u['fundCount']==len(u['funds']) and u['fundCount']>300
           assert u['amcCount']==len(u['amcs']) and u['amcCount']>20
           assert len({str(f['schemeCode']) for f in u['funds']})==u['fundCount']
+          usrc=dt.date.fromisoformat(u['sourceAsOf'])
+          ugenerated=dt.datetime.fromisoformat(u['generatedAt'].replace('Z','+00:00')).astimezone(ZoneInfo('Asia/Kolkata')).date()
+          assert usrc<=ugenerated and usrc<=today
+          assert u.get('quality',{}).get('dateSanityVersion')==1
+          assert u.get('quality',{}).get('credibleFeedAsOf')==u['sourceAsOf']
+          assert all(dt.date.fromisoformat(f['navDate'])<=usrc for f in u['funds'])
           up=open('data/mf-universe.json.gz.b64','rt',encoding='ascii').read().strip()
           assert json.loads(gzip.decompress(base64.b64decode(up)))['fundCount']==u['fundCount']
           print('snapshot V4 strict OK:',x['sourceAsOf'],x['stats'],x['quality'])
