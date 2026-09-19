@@ -3,8 +3,10 @@
 No history calls are made here; fund detail loads one selected scheme's daily history on demand.
 """
 from __future__ import annotations
-import base64, datetime as dt, gzip, json, os, re, urllib.request
+import base64, datetime as dt, gzip, json, math, os, re, urllib.request
+from collections import Counter
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 BASE=os.getenv('MFAPI_BASE','https://api.mfapi.in').rstrip('/')
 OUT=Path(os.getenv('UNIVERSE_OUT','data/mf-universe.json'))
@@ -12,6 +14,9 @@ TIMEOUT=int(os.getenv('HTTP_TIMEOUT','45'))
 FRESHNESS_DAYS=int(os.getenv('ACTIVE_FRESHNESS_DAYS','7'))
 UA='Rupevia-MF-Universe/1.0 (+GitHub Actions)'
 BAD=('segregated portfolio','segregated port','side pocket','side-pocket')
+MIN_SUPPORT_COUNT=int(os.getenv('DATE_SUPPORT_MIN','30'))
+MIN_SUPPORT_SHARE=float(os.getenv('DATE_SUPPORT_SHARE','0.05'))
+IST=ZoneInfo('Asia/Kolkata')
 
 def get_json(url:str):
     req=urllib.request.Request(url,headers={'User-Agent':UA,'Accept':'application/json'})
@@ -21,6 +26,18 @@ def get_json(url:str):
 def dparse(v):
     try:return dt.datetime.strptime(str(v or '').strip(),'%d-%m-%Y').date()
     except Exception:return None
+
+def credible_feed_date(payload):
+    today=dt.datetime.now(dt.timezone.utc).astimezone(IST).date()
+    parsed=[dparse(x.get('date')) for x in payload if isinstance(x,dict)]
+    future=[d for d in parsed if d and d>today]
+    dates=[d for d in parsed if d and d<=today]
+    if not dates:raise RuntimeError('no non-future NAV dates')
+    counts=Counter(dates)
+    threshold=max(MIN_SUPPORT_COUNT,math.ceil(len(dates)*MIN_SUPPORT_SHARE))
+    supported=[d for d,n in counts.items() if n>=threshold]
+    if not supported:raise RuntimeError(f'no credible NAV date meets support threshold {threshold}; top={counts.most_common(5)}')
+    return max(supported),len(future),threshold
 
 def direct_growth(name:str)->bool:
     n=re.sub(r'\s+',' ',name.lower())
@@ -48,10 +65,8 @@ def norm_name(v:str)->str:
 def main():
     payload=get_json(BASE+'/mf/latest')
     if not isinstance(payload,list):raise RuntimeError('MFAPI /mf/latest did not return list')
-    dates=[dparse(x.get('date')) for x in payload if isinstance(x,dict)]
-    dates=[d for d in dates if d]
-    if not dates:raise RuntimeError('no valid NAV dates')
-    feed=max(dates); min_date=feed-dt.timedelta(days=FRESHNESS_DAYS)
+    feed,future_rows,threshold=credible_feed_date(payload)
+    min_date=feed-dt.timedelta(days=FRESHNESS_DAYS)
     rows=[]
     for x in payload:
         if not isinstance(x,dict):continue
@@ -65,7 +80,7 @@ def main():
         try: nav=float(x.get('nav') or 0)
         except Exception:nav=0
         code=str(x.get('schemeCode') or x.get('scheme_code') or '').strip()
-        if not code or nav<=0 or date is None or date<min_date:continue
+        if not code or nav<=0 or date is None or date>feed or date<min_date:continue
         cat=str(x.get('schemeCategory') or x.get('scheme_category') or '').strip()
         fh=str(x.get('fundHouse') or x.get('fund_house') or '').strip()
         rows.append({'schemeCode':code,'isin':str(x.get('isinGrowth') or x.get('isin_growth') or ''),'name':name,'schemeName':name,'fundHouse':fh,'schemeType':st,'amfiCategory':cat,'group':broad_group(cat),'subCategory':subcat(cat),'nav':nav,'navDate':date.isoformat()})
@@ -78,11 +93,11 @@ def main():
         if old is None or rv>ov: dedup[k]=r
     rows=sorted(dedup.values(),key=lambda r:(r['fundHouse'].lower(),r['name'].lower()))
     amcs=sorted({r['fundHouse'] for r in rows if r['fundHouse']})
-    doc={'schemaVersion':1,'generatedAt':dt.datetime.now(dt.timezone.utc).replace(microsecond=0).isoformat().replace('+00:00','Z'),'sourceAsOf':feed.isoformat(),'source':'MFAPI /mf/latest (AMFI mirror)','scope':'Active/recent open-ended Direct Growth schemes; full-search universe, not Rupevia ranking universe.','fundCount':len(rows),'amcCount':len(amcs),'amcs':amcs,'funds':rows}
+    doc={'schemaVersion':1,'generatedAt':dt.datetime.now(dt.timezone.utc).replace(microsecond=0).isoformat().replace('+00:00','Z'),'sourceAsOf':feed.isoformat(),'source':'MFAPI /mf/latest (AMFI mirror)','scope':'Active/recent open-ended Direct Growth schemes; full-search universe, not Rupevia ranking universe.','fundCount':len(rows),'amcCount':len(amcs),'amcs':amcs,'quality':{'dateSanityVersion':1,'credibleFeedAsOf':feed.isoformat(),'futureFeedRowsIgnored':future_rows,'dateSupportThreshold':threshold},'funds':rows}
     OUT.parent.mkdir(parents=True,exist_ok=True)
     raw=(json.dumps(doc,ensure_ascii=False,separators=(',',':'))+'\n').encode('utf-8')
     OUT.write_bytes(raw)
     (OUT.parent/'mf-universe.json.gz.b64').write_text(base64.b64encode(gzip.compress(raw,compresslevel=9,mtime=0)).decode('ascii')+'\n',encoding='ascii')
-    print('universe',len(rows),'amcs',len(amcs),'as-of',feed.isoformat(),'raw',len(raw))
+    print('universe',len(rows),'amcs',len(amcs),'as-of',feed.isoformat(),'future rows ignored',future_rows,'support threshold',threshold,'raw',len(raw))
     return 0
 if __name__=='__main__': raise SystemExit(main())
