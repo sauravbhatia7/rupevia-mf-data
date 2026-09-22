@@ -5,6 +5,10 @@ on:
     # Avoid the top of the hour while checking through India's NAV publication window.
     - cron: '12,42 0-3,14-23 * * *'
   workflow_dispatch:
+  push:
+    paths:
+      - 'scripts/update_daily_history.py'
+      - '.github/workflows/update-mf-daily-history.yml'
 
 permissions:
   contents: write
