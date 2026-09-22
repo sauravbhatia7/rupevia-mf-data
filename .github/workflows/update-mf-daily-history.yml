@@ -1,0 +1,49 @@
+name: Update MF daily history
+
+on:
+  schedule:
+    # Avoid the top of the hour while checking through India's NAV publication window.
+    - cron: '12,42 0-3,14-23 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: rupevia-mf-daily-history
+  cancel-in-progress: true
+
+jobs:
+  history:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Refresh daily NAV history
+        env:
+          HTTP_TIMEOUT: '25'
+          HISTORY_WORKERS: '8'
+          HISTORY_ATTEMPTS: '3'
+        run: python scripts/update_daily_history.py
+
+      - name: Commit changed daily history
+        run: |
+          git config user.name "rupevia-data-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add data/history
+          if git diff --cached --quiet; then
+            echo "No daily history change"
+            exit 0
+          fi
+          git commit -m "data: refresh daily mutual fund NAV history"
+          git pull --rebase origin main
+          git push
