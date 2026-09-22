@@ -4,7 +4,7 @@ on:
   schedule:
     # Every 15 minutes during India's evening/overnight NAV publication window.
     # UTC 14:00..23:45 + 00:00..03:45 = IST 19:30..09:15.
-    - cron: '0,15,30,45 0-3,14-23 * * *'
+    - cron: '7,37 0-3,14-23 * * *'
   workflow_dispatch:
   push:
     paths:
@@ -36,7 +36,7 @@ jobs:
       - name: Check whether AMFI mirror has a newer NAV date
         id: fresh
         env:
-          HTTP_TIMEOUT: '45'
+          HTTP_TIMEOUT: '25'
         run: python scripts/check_source_freshness.py
 
       - name: Build ranked snapshot
