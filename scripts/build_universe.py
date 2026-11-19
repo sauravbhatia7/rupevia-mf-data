@@ -43,6 +43,11 @@ def direct_growth(name:str)->bool:
     n=re.sub(r'\s+',' ',name.lower())
     return 'direct' in n and 'growth' in n and not re.search(r'\b(idcw|dividend|bonus|payout|reinvest(?:ment)?)\b',n)
 
+def verified_direct_growth(code:str,name:str,category:str)->bool:
+    # MFAPI omits the Direct Growth suffix for this verified scheme code.
+    return (code=='127042' and name.strip().lower()=='motilal oswal midcap fund'
+            and category.strip().lower()=='equity scheme - mid cap fund')
+
 def broad_group(cat:str)->str:
     c=(cat or '').lower()
     if 'equity' in c:return 'Equity'
@@ -73,7 +78,9 @@ def main():
         st=str(x.get('schemeType') or x.get('scheme_type') or '')
         if 'open ended' not in st.lower():continue
         name=re.sub(r'\s+',' ',str(x.get('schemeName') or x.get('scheme_name') or '')).strip()
-        if not name or not direct_growth(name):continue
+        code_for_plan=str(x.get('schemeCode') or x.get('scheme_code') or '').strip()
+        scheme_category=str(x.get('schemeCategory') or x.get('scheme_category') or '')
+        if not name or not (direct_growth(name) or verified_direct_growth(code_for_plan,name,scheme_category)):continue
         nl=name.lower()
         if any(b in nl for b in BAD):continue
         date=dparse(x.get('date'))
