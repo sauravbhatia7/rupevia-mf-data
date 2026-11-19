@@ -85,6 +85,29 @@ def parse_latest(text: str) -> list[dict]:
     min_active_date = feed_as_of - dt.timedelta(days=FRESHNESS_DAYS)
     FEED_AUDIT.update(credibleFeedAsOf=feed_as_of.isoformat(), futureRowsIgnored=future_rows, dateSupportThreshold=threshold)
 
+    # Diagnostic only: explain why the known active Midcap scheme is absent.
+    # Never inject a scheme or fabricate a NAV from this diagnostic.
+    target_code = '127042'
+    target_rows = [x for x in payload if isinstance(x, dict) and str(x.get('schemeCode') or x.get('scheme_code') or '').strip() == target_code]
+    if not target_rows:
+        print(f'Source audit {target_code}: missing from MFAPI /mf/latest feed')
+    else:
+        for item in target_rows:
+            name = str(item.get('schemeName') or item.get('scheme_name') or '')
+            scheme_type = str(item.get('schemeType') or item.get('scheme_type') or '')
+            scheme_category = str(item.get('schemeCategory') or item.get('scheme_category') or '')
+            date = _date(item.get('date'))
+            reasons = []
+            if 'open ended' not in scheme_type.lower(): reasons.append('schemeType')
+            if core.category(scheme_category) != 'Mid Cap': reasons.append('category')
+            if not core.direct_growth(name): reasons.append('directGrowthName')
+            if _legacy_name(name): reasons.append('legacyName')
+            if date is None or date > feed_as_of or date < min_active_date: reasons.append('navDate')
+            try:
+                if float(item.get('nav') or 0) <= 0: reasons.append('navValue')
+            except (TypeError, ValueError): reasons.append('navValue')
+            print(f'Source audit {target_code}: name={name!r}, category={scheme_category!r}, date={date}, filters={reasons or ["passed"]}')
+
     out = []
     for x in payload:
         if not isinstance(x, dict):
