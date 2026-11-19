@@ -55,6 +55,9 @@ def get(url: str, attempts: int = 4) -> bytes:
 
 def category(header: str) -> str | None:
     h = re.sub(r"\s+", " ", header.lower())
+    # Large & Mid Cap is a distinct SEBI category, not pure Mid Cap.
+    # Keep it out of the eight Rupevia categories instead of misranking it.
+    if re.search(r"large\\s*(?:&|and)\\s*mid\\s*cap\\s*fund", h): return None
     if "large cap fund" in h: return "Large Cap"
     if "mid cap fund" in h: return "Mid Cap"
     if "small cap fund" in h: return "Small Cap"
