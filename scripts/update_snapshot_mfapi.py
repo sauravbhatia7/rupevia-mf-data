@@ -76,6 +76,13 @@ def _credible_feed_date(payload: list[dict]) -> tuple[dt.date, int, int]:
     return max(supported), len(future), threshold
 
 
+# MFAPI labels this verified Direct Growth scheme without its plan suffix.
+# Exception is restricted to its known scheme code and exact scheme/category.
+def verified_direct_growth(code: str, name: str, category: str) -> bool:
+    return (code == '127042' and name.strip().lower() == 'motilal oswal midcap fund'
+            and category.strip().lower() == 'equity scheme - mid cap fund')
+
+
 def parse_latest(text: str) -> list[dict]:
     payload = json.loads(text)
     if not isinstance(payload, list):
@@ -100,7 +107,7 @@ def parse_latest(text: str) -> list[dict]:
             reasons = []
             if 'open ended' not in scheme_type.lower(): reasons.append('schemeType')
             if core.category(scheme_category) != 'Mid Cap': reasons.append('category')
-            if not core.direct_growth(name): reasons.append('directGrowthName')
+            if not (core.direct_growth(name) or verified_direct_growth(target_code, name, scheme_category)): reasons.append('directGrowthName')
             if _legacy_name(name): reasons.append('legacyName')
             if date is None or date > feed_as_of or date < min_active_date: reasons.append('navDate')
             try:
@@ -120,7 +127,8 @@ def parse_latest(text: str) -> list[dict]:
         if not cat:
             continue
         name = str(x.get('schemeName') or x.get('scheme_name') or '').strip()
-        if not name or _legacy_name(name) or not core.direct_growth(name):
+        code_for_plan = str(x.get('schemeCode') or x.get('scheme_code') or '').strip()
+        if not name or _legacy_name(name) or not (core.direct_growth(name) or verified_direct_growth(code_for_plan, name, scheme_category)):
             continue
         if cat == 'Index' and not core.equity_index(name):
             continue
