@@ -133,9 +133,12 @@ def main():
         if s.get('savingsRate') is not None:
             pv=p.get('savingsRate')
             row['savingsRate']=round(float(pv),2) if valid_savings(pv) and abs(float(pv)-float(s['savingsRate']))<=1.0 else s['savingsRate']
-        row['sourceCheckedAt']=now
+        row['sourceCheckedAt']=p.get('sourceCheckedAt') or s.get('sourceCheckedAt')
         row['productStatus']=dict(s.get('productStatus') or {})
         row['productEffectiveDate']=dict(s.get('productEffectiveDate') or {})
+        # Apply vetted official baselines BEFORE fetching fresh rates; otherwise
+        # stale overrides erase successful automatic updates on every run.
+        row=apply_vetted(row,vetted_banks.get(bid),vetted.get('verifiedAt'))
         if bid in SUPPORTED_AUTO:
             try:
                 html=fetch(row['sources']['fd'])
@@ -143,6 +146,7 @@ def main():
                 if nr:
                     row['fdRates']=merge_safe(row['fdRates'],nr); row['fdSeniorRates']=merge_safe(row['fdSeniorRates'],ns)
                     row['productStatus']['fd']='verified-official-auto'
+                    row['sourceCheckedAt']=now
                 elif row['fdRates']: row['productStatus']['fd']='last-verified-official'
             except Exception as e:
                 if row['fdRates']: row['productStatus']['fd']='last-verified-official'
@@ -161,7 +165,6 @@ def main():
                     else: row['productStatus']['rd']='last-verified-official'
                 except Exception as e:
                     row['productStatus']['rd']='last-verified-official'; failures.append({'bank':bid,'product':'rd','error':str(e)[:160]})
-        row=apply_vetted(row,vetted_banks.get(bid),vetted.get('verifiedAt'))
         dates=[d for d in row['productEffectiveDate'].values() if d]
         row['effectiveDate']=max(dates) if dates else None
         row['verified']=bool(row['fdRates'] or row['rdRates'] or row.get('savingsRate') is not None)
