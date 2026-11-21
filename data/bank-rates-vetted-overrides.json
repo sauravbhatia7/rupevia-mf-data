@@ -1,6 +1,6 @@
 {
   "verifiedAt": "2026-09-18T13:20:00Z",
-  "method": "Manually vetted from current official bank rate tables. These overrides intentionally cover only standard callable retail products and the lowest/base savings slab. They must not be replaced by promotional, special-tenure, bulk or non-callable rates. Bank of Baroda and Union Bank FD baselines checked against their official published callable retail rate tables on 2026-11-21; productEffectiveDate reflects the banks' published effective dates.",
+  "method": "Manually vetted from current official bank rate tables. These overrides intentionally cover only standard callable retail products and the lowest/base savings slab. They must not be replaced by promotional, special-tenure, bulk or non-callable rates. Bank of Baroda and Union Bank FD baselines checked against their official published callable retail rate tables on 2026-11-21; productEffectiveDate reflects the banks' published effective dates. YES BANK standard retail FD rates checked against official rate table effective 2026-06-02; AU SFB standard retail FD rates checked against official table effective 2026-09-01. AU senior table shown with 2026-06-10 effective date. Exact 12/24/36/60 month nominal card rates, not annualized yields.",
   "banks": {
     "sbi": {
       "fdRates": {
@@ -374,6 +374,66 @@
       },
       "sources": {
         "fd": "https://www.unionbankofindia.bank.in/en/details/rate-of-interest"
+      }
+    },
+    "yes": {
+      "fdRates": {
+        "12": 6.65,
+        "24": 7,
+        "36": 7,
+        "60": 6.75
+      },
+      "fdSeniorRates": {
+        "12": 7.15,
+        "24": 7.5,
+        "36": 7.75,
+        "60": 7.5
+      },
+      "rdRates": {},
+      "rdSeniorRates": {},
+      "savingsRate": null,
+      "productEffectiveDate": {
+        "fd": "2026-06-02",
+        "rd": null,
+        "savings": null
+      },
+      "productStatus": {
+        "fd": "verified-official-baseline",
+        "rd": "unavailable",
+        "savings": "unavailable"
+      },
+      "sources": {
+        "fd": "https://www.yes.bank.in/personal-banking/yes-individual/deposits/fixed-deposit"
+      }
+    },
+    "au": {
+      "fdRates": {
+        "12": 6.35,
+        "24": 7,
+        "36": 7.4,
+        "60": 6.75
+      },
+      "fdSeniorRates": {
+        "12": 6.85,
+        "24": 7.5,
+        "36": 7.9,
+        "60": 7.25
+      },
+      "rdRates": {},
+      "rdSeniorRates": {},
+      "savingsRate": null,
+      "productEffectiveDate": {
+        "fd": "2026-09-01",
+        "rd": null,
+        "savings": null
+      },
+      "productStatus": {
+        "fd": "verified-official-baseline",
+        "rd": "unavailable",
+        "savings": "unavailable"
+      },
+      "sources": {
+        "fd": "https://www.au.bank.in/interest-rates/fixed-deposit-interest-rates."
       }
     }
   }
